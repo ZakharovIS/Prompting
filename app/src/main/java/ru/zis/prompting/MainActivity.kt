@@ -36,6 +36,7 @@ import okhttp3.Request
 import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.POST
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,7 +66,8 @@ private fun ChatScreen(vm: ChatViewModel = viewModel()) {
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Промт") },
                 supportingText = { Text("${vm.prompt.text.length} / $maxPromptChars") },
-                minLines = 4
+                minLines = 12,
+                maxLines = 12
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -89,7 +91,8 @@ private fun ChatScreen(vm: ChatViewModel = viewModel()) {
                     .weight(1f),
                 label = { Text("Ответ") },
                 readOnly = true,
-                minLines = 8
+                minLines = 1,
+                maxLines = Int.MAX_VALUE
             )
         }
     }
@@ -151,6 +154,10 @@ private object RouterAiApiFactory {
         }
 
         val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS) // установка соединения
+            .writeTimeout(30, TimeUnit.SECONDS)   // отправка тела запроса
+            .readTimeout(60, TimeUnit.SECONDS)    // ожидание ответа/чтение
+            .callTimeout(90, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val key = BuildConfig.ROUTERAI_API_KEY
                 val req: Request = chain.request().newBuilder()
