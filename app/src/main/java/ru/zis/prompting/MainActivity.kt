@@ -37,6 +37,11 @@ import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.mutableFloatStateOf
+import java.util.Locale
+import android.util.Log
+import okhttp3.logging.HttpLoggingInterceptor
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,6 +73,17 @@ private fun ChatScreen(vm: ChatViewModel = viewModel()) {
                 supportingText = { Text("${vm.prompt.text.length} / $maxPromptChars") },
                 minLines = 12,
                 maxLines = 12
+            )
+
+            Text(
+                text = "Температура: ${String.format(Locale.US, "%.2f", vm.temperature)}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Slider(
+                value = vm.temperature,
+                onValueChange = { vm.temperature = it },
+                valueRange = 0f..2f
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -103,6 +119,7 @@ private fun ChatScreen(vm: ChatViewModel = viewModel()) {
 
 class ChatViewModel : ViewModel() {
     var prompt by mutableStateOf(TextFieldValue(""))
+    var temperature by mutableFloatStateOf(0.7f)
     var answer by mutableStateOf("")
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
@@ -118,13 +135,20 @@ class ChatViewModel : ViewModel() {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val resp = api.chatCompletions(
-                    ChatCompletionRequest(
-                        model = "openai/gpt-5.2",
-                        messages = listOf(Message(role = "user", content = text))
+                val resp = api.createResponse(
+                    ResponsesRequest(
+                        model = "openai/gpt-4o-2024-11-20",
+                        input = listOf(InputMessage(role = "user", content = text)),
+                        stream = false,
+                        temperature = temperature,
                     )
                 )
-                val content = resp.choices.firstOrNull()?.message?.content.orEmpty()
+
+                if (resp.error != null) {
+                    throw IllegalStateException(resp.error.message ?: "RouterAI error")
+                }
+
+                val content = resp.extractText()
 
                 launch(Dispatchers.Main) {
                     answer = content.ifBlank { "(пустой ответ)" }
@@ -143,14 +167,19 @@ class ChatViewModel : ViewModel() {
 /* -------------------- Network -------------------- */
 
 private interface RouterAiApi {
-    @POST("chat/completions")
-    suspend fun chatCompletions(@Body body: ChatCompletionRequest): ChatCompletionResponse
+    @POST("responses")
+    suspend fun createResponse(@Body body: ResponsesRequest): ResponsesResponse
 }
 
 private object RouterAiApiFactory {
     fun create(): RouterAiApi {
         val json = Json {
             ignoreUnknownKeys = true
+        }
+
+        val logging = HttpLoggingInterceptor { msg -> Log.d("RouterAI_HTTP", msg) }.apply {
+            level = HttpLoggingInterceptor.Level.BODY
+            redactHeader("Authorization") // чтобы не утек API key в логи
         }
 
         val client = OkHttpClient.Builder()
@@ -166,6 +195,7 @@ private object RouterAiApiFactory {
                     .build()
                 chain.proceed(req)
             }
+            .addInterceptor(logging)
             .build()
 
         val retrofit = Retrofit.Builder()
@@ -178,27 +208,65 @@ private object RouterAiApiFactory {
     }
 }
 
-/* -------------------- Models (OpenAI-like) -------------------- */
+/* -------------------- Models (Responses) -------------------- */
 
 @Serializable
-private data class ChatCompletionRequest(
+private data class ResponsesRequest(
     val model: String,
-    val messages: List<Message>
+    val input: List<InputMessage>,
+    val stream: Boolean = false,
+    val temperature: Float? = null,
+    @SerialName("top_p") val topP: Float? = null,
+    val reasoning: Reasoning? = null,
+    @SerialName("max_output_tokens") val maxOutputTokens: Int? = null
 )
 
 @Serializable
-private data class Message(
+private data class Reasoning(
+    val effort: String? = null // "none", "low", "medium", "high" — если поддерживается
+)
+
+@Serializable
+private data class InputMessage(
     val role: String,
     val content: String
 )
 
 @Serializable
-private data class ChatCompletionResponse(
-    val choices: List<Choice> = emptyList()
+private data class ResponsesResponse(
+    val output: List<ResponseOutputItem> = emptyList(),
+    val error: RouterAiError? = null
+) {
+    fun extractText(): String =
+        output
+            .asSequence()
+            .filter { it.type == "message" }
+            .flatMap { it.content.asSequence() }
+            .filter { part ->
+                val t = part.type
+                t == "output_text" || t == "text"
+            }
+            .mapNotNull { it.text }
+            .joinToString(separator = "")
+}
+
+@Serializable
+private data class ResponseOutputItem(
+    val id: String? = null,
+    val type: String? = null,   // "message"
+    val role: String? = null,   // "assistant"
+    val status: String? = null,
+    val content: List<ResponseContentPart> = emptyList()
 )
 
 @Serializable
-private data class Choice(
-    val message: Message? = null,
-    @SerialName("finish_reason") val finishReason: String? = null
+private data class ResponseContentPart(
+    val type: String? = null,   // "output_text"
+    val text: String? = null
+)
+
+@Serializable
+private data class RouterAiError(
+    val message: String? = null,
+    val type: String? = null
 )
