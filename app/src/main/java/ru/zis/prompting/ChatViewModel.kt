@@ -1,18 +1,19 @@
 package ru.zis.prompting
 
+import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.zis.prompting.agent.ChatAgent
 import ru.zis.prompting.data.Usage
-import ru.zis.prompting.network.RouterAiApi
+import ru.zis.prompting.db.ChatRepository
 import ru.zis.prompting.network.RouterAiApiFactory
 
 data class UiMessage(
@@ -22,7 +23,8 @@ data class UiMessage(
     val usage: Usage? = null       // только для assistant
 )
 
-class ChatViewModel : ViewModel() {
+class ChatViewModel(application: Application) : AndroidViewModel(application) {
+
     var inputText by mutableStateOf("")
     var temperature by mutableFloatStateOf(0.7f)
 
@@ -31,14 +33,43 @@ class ChatViewModel : ViewModel() {
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
 
-    private val api: RouterAiApi = RouterAiApiFactory.create()
+    /** true пока идёт начальная загрузка истории из БД */
+    var historyLoading by mutableStateOf(true)
+        private set
+
+    private val api = RouterAiApiFactory.create()
     private val agent = ChatAgent(api = api, model = "openai/gpt-5.2")
+
+    private val repository: ChatRepository =
+        (application as App).chatRepository
+
+    init {
+        loadHistory()
+    }
+
+    // ─── Загрузка истории из БД ───────────────────────────────────────────
+
+    private fun loadHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val state = repository.load()
+            withContext(Dispatchers.Main) {
+                if (state != null) {
+                    messages.addAll(state.uiMessages)
+                    agent.restoreHistory(state.agentHistory)
+                }
+                historyLoading = false
+            }
+        }
+    }
+
+    // ─── Публичное API ────────────────────────────────────────────────────
 
     fun clearChat() {
         agent.clear()
         messages.clear()
         error = null
         loading = false
+        viewModelScope.launch(Dispatchers.IO) { repository.clear() }
     }
 
     fun send() {
@@ -58,10 +89,8 @@ class ChatViewModel : ViewModel() {
         error = null
         loading = true
 
-        // UI: сразу добавляем user-сообщение
         messages += UiMessage(role = "user", text = text)
 
-        // если отправили из поля ввода — очищаем
         if (inputText.trim() == text) inputText = ""
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -77,6 +106,12 @@ class ChatViewModel : ViewModel() {
                     )
                     loading = false
                 }
+
+                // Сохраняем после успешного ответа
+                repository.save(
+                    uiMessages = messages.toList(),
+                    agentHistory = agent.snapshotHistory()
+                )
             } catch (t: Throwable) {
                 withContext(Dispatchers.Main) {
                     error = t.message ?: t.toString()

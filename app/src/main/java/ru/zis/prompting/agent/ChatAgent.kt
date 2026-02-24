@@ -19,6 +19,12 @@ class ChatAgent(
 
     fun snapshotHistory(): List<InputMessage> = history.toList()
 
+    /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */
+    fun restoreHistory(saved: List<InputMessage>) {
+        history.clear()
+        history.addAll(saved)
+    }
+
     suspend fun send(userText: String, temperature: Float?): AgentTurn {
         // 1) добавляем пользовательское сообщение в память
         history += InputMessage(role = "user", content = userText)

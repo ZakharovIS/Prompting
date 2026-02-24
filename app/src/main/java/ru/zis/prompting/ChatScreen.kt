@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +77,17 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                 valueRange = 0f..2f
             )
 
+            if (vm.historyLoading) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(strokeWidth = 2.dp,
+                        modifier = Modifier.height(16.dp).width(16.dp))
+                    Text("Загрузка истории...", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
             if (!vm.error.isNullOrBlank()) {
                 Text(
                     text = vm.error ?: "",
@@ -117,7 +129,7 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
 
                 TextButton(
                     onClick = { vm.retryLastUser() },
-                    enabled = !vm.loading && vm.messages.any { it.role == "user" }
+                    enabled = !vm.loading && !vm.historyLoading && vm.messages.any { it.role == "user" }
                 ) {
                     Icon(painterResource(R.drawable.baseline_refresh_24), contentDescription = "Повторить")
                     Spacer(Modifier.width(8.dp))
