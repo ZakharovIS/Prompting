@@ -12,9 +12,13 @@ class ChatAgent(
     private val maxHistoryMessages: Int = 40
 ) {
     private val history = mutableListOf<InputMessage>()
+    private var historyTokensSum: Int = 0
+    private var hasHistoryTokens: Boolean = false
 
     fun clear() {
         history.clear()
+        historyTokensSum = 0
+        hasHistoryTokens = false
     }
 
     fun snapshotHistory(): List<InputMessage> = history.toList()
@@ -23,6 +27,17 @@ class ChatAgent(
     fun restoreHistory(saved: List<InputMessage>) {
         history.clear()
         history.addAll(saved)
+    }
+
+    /** Восстанавливает накопленные токены истории из сохранённого UI-состояния. */
+    fun restoreHistoryTokens(savedHistoryTokens: Int?) {
+        if (savedHistoryTokens == null) {
+            historyTokensSum = 0
+            hasHistoryTokens = false
+            return
+        }
+        historyTokensSum = savedHistoryTokens.coerceAtLeast(0)
+        hasHistoryTokens = true
     }
 
     suspend fun send(userText: String, temperature: Float?): AgentTurn {
@@ -56,10 +71,30 @@ class ChatAgent(
         history += InputMessage(role = "assistant", content = assistantText)
         trimHistoryIfNeeded()
 
+        val apiUsage = resp.usage
+        val currentRequestTokens = apiUsage?.inputTokens
+        val modelResponseTokens = apiUsage?.outputTokens
+        val turnTotalTokens = apiUsage?.totalTokens ?: when {
+            currentRequestTokens != null || modelResponseTokens != null ->
+                (currentRequestTokens ?: 0) + (modelResponseTokens ?: 0)
+            else -> null
+        }
+
+        if (turnTotalTokens != null) {
+            historyTokensSum += turnTotalTokens
+            hasHistoryTokens = true
+        }
+
+        val mergedUsage = (apiUsage ?: Usage()).copy(
+            currentRequestTokens = currentRequestTokens,
+            modelResponseTokens = modelResponseTokens,
+            historyTokens = if (hasHistoryTokens) historyTokensSum else null
+        )
+
         return AgentTurn(
             text = assistantText,
             latencyMs = latencyMs,
-            usage = resp.usage
+            usage = mergedUsage
         )
     }
 

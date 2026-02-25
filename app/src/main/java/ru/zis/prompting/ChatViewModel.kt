@@ -26,7 +26,7 @@ data class UiMessage(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     var inputText by mutableStateOf("")
-    var temperature by mutableFloatStateOf(0.7f)
+    var temperature by mutableFloatStateOf(1.0f)
 
     val messages = mutableStateListOf<UiMessage>()
 
@@ -37,8 +37,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var historyLoading by mutableStateOf(true)
         private set
 
+    val model = "google/gemma-2-9b-it"
+
     private val api = RouterAiApiFactory.create()
-    private val agent = ChatAgent(api = api, model = "openai/gpt-5.2")
+    private val agent = ChatAgent(api = api, model = model)
 
     private val repository: ChatRepository =
         (application as App).chatRepository
@@ -56,10 +58,34 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (state != null) {
                     messages.addAll(state.uiMessages)
                     agent.restoreHistory(state.agentHistory)
+                    agent.restoreHistoryTokens(extractSavedHistoryTokens(state.uiMessages))
                 }
                 historyLoading = false
             }
         }
+    }
+
+    private fun extractSavedHistoryTokens(uiMessages: List<UiMessage>): Int? {
+        val lastHistoryFromUsage = uiMessages
+            .asReversed()
+            .firstNotNullOfOrNull { it.usage?.historyTokens }
+        if (lastHistoryFromUsage != null) return lastHistoryFromUsage
+
+        // Fallback для старых сохранений: суммируем только API usage по assistant-ходам.
+        val sum = uiMessages
+            .asSequence()
+            .filter { it.role == "assistant" }
+            .mapNotNull { msg ->
+                val u = msg.usage ?: return@mapNotNull null
+                u.totalTokens ?: when {
+                    u.inputTokens != null || u.outputTokens != null ->
+                        (u.inputTokens ?: 0) + (u.outputTokens ?: 0)
+                    else -> null
+                }
+            }
+            .sum()
+
+        return if (sum > 0) sum else null
     }
 
     // ─── Публичное API ────────────────────────────────────────────────────

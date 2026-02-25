@@ -24,7 +24,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -36,7 +35,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,11 +61,11 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Модель: openai/gpt-5.2",
+                text = "Модель: ${vm.model}",
                 style = MaterialTheme.typography.bodySmall
             )
 
-            Text(
+            /*Text(
                 text = "Температура: ${String.format(Locale.US, "%.2f", vm.temperature)}",
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -75,7 +73,7 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                 value = vm.temperature,
                 onValueChange = { vm.temperature = it },
                 valueRange = 0f..2f
-            )
+            )*/
 
             if (vm.historyLoading) {
                 Row(
@@ -184,15 +182,29 @@ private fun MessageBubble(msg: UiMessage) {
                     style = MaterialTheme.typography.bodyMedium
                 )
 
-                if (!isUser && (msg.latencyMs != null || msg.usage?.totalTokens != null)) {
+                if (!isUser && (msg.latencyMs != null || msg.usage != null)) {
                     Spacer(Modifier.height(6.dp))
                     val u = msg.usage
                     Text(
                         text = buildString {
                             if (msg.latencyMs != null) append("Latency: ${msg.latencyMs} ms")
-                            if (u?.totalTokens != null) {
-                                if (msg.latencyMs != null) append(" | ")
-                                append("Tokens: in=${u.inputTokens ?: "?"} out=${u.outputTokens ?: "?"} total=${u.totalTokens}")
+                            u?.let { usage ->
+                                if (usage.totalTokens != null ||
+                                    usage.currentRequestTokens != null ||
+                                    usage.modelResponseTokens != null ||
+                                    usage.historyTokens != null
+                                ) {
+                                    if (msg.latencyMs != null) append(" | ")
+                                    append(
+                                        "Tokens: запрос=${usage.currentRequestTokens ?: "?"} " +
+                                            "ответ=${usage.modelResponseTokens ?: "?"} " +
+                                            "всего в истории=${usage.historyTokens ?: "?"}"
+                                    )
+
+                                    /*if (usage.inputTokens != null || usage.outputTokens != null || usage.totalTokens != null) {
+                                        append(" | api: in=${usage.inputTokens ?: "?"} out=${usage.outputTokens ?: "?"} total=${usage.totalTokens ?: "?"}")
+                                    }*/
+                                }
                             }
                         },
                         style = MaterialTheme.typography.bodySmall,
