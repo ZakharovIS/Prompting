@@ -12,12 +12,17 @@ class ChatRepository(private val dao: ChatSessionDao) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Сохраняет текущее состояние UI-сообщений и истории агента. */
-    suspend fun save(uiMessages: List<UiMessage>, agentHistory: List<InputMessage>) {
+    /** Сохраняет текущее состояние UI-сообщений, истории агента и summary. */
+    suspend fun save(
+        uiMessages: List<UiMessage>,
+        agentHistory: List<InputMessage>,
+        summary: String?
+    ) {
         val entity = ChatSessionEntity(
             sessionId = 1,
             messagesJson = json.encodeToString(uiMessages.map { it.toSerializable() }),
             agentHistoryJson = json.encodeToString(agentHistory),
+            summaryJson = summary.orEmpty(),
             updatedAt = System.currentTimeMillis()
         )
         dao.upsert(entity)
@@ -33,7 +38,11 @@ class ChatRepository(private val dao: ChatSessionDao) {
                 .map { it.toUiMessage() }
             val agentHistory = json
                 .decodeFromString<List<InputMessage>>(entity.agentHistoryJson)
-            ChatState(uiMessages, agentHistory)
+            ChatState(
+                uiMessages = uiMessages,
+                agentHistory = agentHistory,
+                summary = entity.summaryJson.takeIf { it.isNotBlank() }
+            )
         } catch (e: Exception) {
             null
         }
@@ -47,5 +56,6 @@ class ChatRepository(private val dao: ChatSessionDao) {
 
 data class ChatState(
     val uiMessages: List<UiMessage>,
-    val agentHistory: List<InputMessage>
+    val agentHistory: List<InputMessage>,
+    val summary: String?
 )

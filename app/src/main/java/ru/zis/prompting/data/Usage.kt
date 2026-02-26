@@ -12,6 +12,8 @@ data class Usage(
     @SerialName("current_request_tokens") val currentRequestTokens: Int? = null,
     /** Токены ответа модели за текущий ход из API (output_tokens). */
     @SerialName("model_response_tokens") val modelResponseTokens: Int? = null,
-    /** Накопленная сумма токенов по всей истории чата на основе API usage. */
-    @SerialName("history_tokens") val historyTokens: Int? = null
+    /** Накопленная сумма input-токенов за всю сессию (включая summary-запросы). */
+    @SerialName("cumulative_input_tokens") val cumulativeInputTokens: Int? = null,
+    /** Накопленная сумма output-токенов за всю сессию (включая summary-запросы). */
+    @SerialName("cumulative_output_tokens") val cumulativeOutputTokens: Int? = null
 )

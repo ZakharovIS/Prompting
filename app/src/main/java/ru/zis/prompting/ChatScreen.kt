@@ -192,14 +192,25 @@ private fun MessageBubble(msg: UiMessage) {
                                 if (usage.totalTokens != null ||
                                     usage.currentRequestTokens != null ||
                                     usage.modelResponseTokens != null ||
-                                    usage.historyTokens != null
+                                    usage.cumulativeInputTokens != null ||
+                                    usage.cumulativeOutputTokens != null
                                 ) {
                                     if (msg.latencyMs != null) append(" | ")
                                     append(
                                         "Tokens: запрос=${usage.currentRequestTokens ?: "?"} " +
-                                            "ответ=${usage.modelResponseTokens ?: "?"} " +
-                                            "всего в истории=${usage.historyTokens ?: "?"}"
+                                            "ответ=${usage.modelResponseTokens ?: "?"}"
                                     )
+
+                                    if (usage.cumulativeInputTokens != null || usage.cumulativeOutputTokens != null) {
+                                        append(
+                                            " | за сессию: in=${usage.cumulativeInputTokens ?: "?"} " +
+                                                "out=${usage.cumulativeOutputTokens ?: "?"}"
+                                        )
+                                    }
+
+                                    if (usage.totalTokens != null) {
+                                        append(" | total=${usage.totalTokens}")
+                                    }
 
                                     /*if (usage.inputTokens != null || usage.outputTokens != null || usage.totalTokens != null) {
                                         append(" | api: in=${usage.inputTokens ?: "?"} out=${usage.outputTokens ?: "?"} total=${usage.totalTokens ?: "?"}")

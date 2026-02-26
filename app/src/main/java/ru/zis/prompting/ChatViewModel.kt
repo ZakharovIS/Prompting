@@ -37,7 +37,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var historyLoading by mutableStateOf(true)
         private set
 
-    val model = "google/gemma-2-9b-it"
+    val model = "deepseek/deepseek-v3.2"
 
     private val api = RouterAiApiFactory.create()
     private val agent = ChatAgent(api = api, model = model)
@@ -57,35 +57,48 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Main) {
                 if (state != null) {
                     messages.addAll(state.uiMessages)
-                    agent.restoreHistory(state.agentHistory)
-                    agent.restoreHistoryTokens(extractSavedHistoryTokens(state.uiMessages))
+                    agent.restoreHistory(state.agentHistory, state.summary)
+                    val (savedInput, savedOutput) = extractSavedCumulativeTokens(state.uiMessages)
+                    agent.restoreCumulativeTokens(savedInput, savedOutput)
                 }
                 historyLoading = false
             }
         }
     }
 
-    private fun extractSavedHistoryTokens(uiMessages: List<UiMessage>): Int? {
-        val lastHistoryFromUsage = uiMessages
+    private fun extractSavedCumulativeTokens(uiMessages: List<UiMessage>): Pair<Int?, Int?> {
+        val lastInputFromUsage = uiMessages
             .asReversed()
-            .firstNotNullOfOrNull { it.usage?.historyTokens }
-        if (lastHistoryFromUsage != null) return lastHistoryFromUsage
+            .firstNotNullOfOrNull { it.usage?.cumulativeInputTokens }
 
-        // Fallback для старых сохранений: суммируем только API usage по assistant-ходам.
-        val sum = uiMessages
+        val lastOutputFromUsage = uiMessages
+            .asReversed()
+            .firstNotNullOfOrNull { it.usage?.cumulativeOutputTokens }
+
+        if (lastInputFromUsage != null || lastOutputFromUsage != null) {
+            return (lastInputFromUsage?.coerceAtLeast(0)) to (lastOutputFromUsage?.coerceAtLeast(0))
+        }
+
+        // Fallback для старых сохранений: суммируем usage по assistant-ходам.
+        val inputSum = uiMessages
             .asSequence()
             .filter { it.role == "assistant" }
             .mapNotNull { msg ->
                 val u = msg.usage ?: return@mapNotNull null
-                u.totalTokens ?: when {
-                    u.inputTokens != null || u.outputTokens != null ->
-                        (u.inputTokens ?: 0) + (u.outputTokens ?: 0)
-                    else -> null
-                }
+                u.currentRequestTokens ?: u.inputTokens
             }
             .sum()
 
-        return if (sum > 0) sum else null
+        val outputSum = uiMessages
+            .asSequence()
+            .filter { it.role == "assistant" }
+            .mapNotNull { msg ->
+                val u = msg.usage ?: return@mapNotNull null
+                u.modelResponseTokens ?: u.outputTokens
+            }
+            .sum()
+
+        return (if (inputSum > 0) inputSum else null) to (if (outputSum > 0) outputSum else null)
     }
 
     // ─── Публичное API ────────────────────────────────────────────────────
@@ -136,7 +149,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // Сохраняем после успешного ответа
                 repository.save(
                     uiMessages = messages.toList(),
-                    agentHistory = agent.snapshotHistory()
+                    agentHistory = agent.snapshotHistory(),
+                    summary = agent.snapshotSummary()
                 )
             } catch (t: Throwable) {
                 withContext(Dispatchers.Main) {

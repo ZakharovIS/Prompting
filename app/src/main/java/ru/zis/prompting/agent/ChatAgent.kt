@@ -11,47 +11,71 @@ class ChatAgent(
     private val model: String = "openai/gpt-5.2",
     private val maxHistoryMessages: Int = 40
 ) {
-    private val history = mutableListOf<InputMessage>()
-    private var historyTokensSum: Int = 0
-    private var hasHistoryTokens: Boolean = false
+    private val fullHistory = mutableListOf<InputMessage>()
+    private var summary: String? = null
+    private var summarizedMessagesCount: Int = 0
+
+    private var cumulativeInputTokensSum: Int = 0
+    private var cumulativeOutputTokensSum: Int = 0
+    private var hasCumulativeTokens: Boolean = false
+
+    companion object {
+        const val RECENT_MESSAGES_COUNT = 5
+        const val SUMMARY_BATCH_SIZE = 10
+        private const val SUMMARY_ROLE = "system"
+    }
 
     fun clear() {
-        history.clear()
-        historyTokensSum = 0
-        hasHistoryTokens = false
+        fullHistory.clear()
+        summary = null
+        summarizedMessagesCount = 0
+        cumulativeInputTokensSum = 0
+        cumulativeOutputTokensSum = 0
+        hasCumulativeTokens = false
     }
 
-    fun snapshotHistory(): List<InputMessage> = history.toList()
+    fun snapshotHistory(): List<InputMessage> = fullHistory.toList()
+
+    fun snapshotSummary(): String? = summary
 
     /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */
-    fun restoreHistory(saved: List<InputMessage>) {
-        history.clear()
-        history.addAll(saved)
+    fun restoreHistory(saved: List<InputMessage>, savedSummary: String?) {
+        fullHistory.clear()
+        fullHistory.addAll(saved)
+        summary = savedSummary?.takeIf { it.isNotBlank() }
+        summarizedMessagesCount = if (summary != null) {
+            (fullHistory.size - RECENT_MESSAGES_COUNT).coerceAtLeast(0)
+        } else {
+            0
+        }
     }
 
-    /** Восстанавливает накопленные токены истории из сохранённого UI-состояния. */
-    fun restoreHistoryTokens(savedHistoryTokens: Int?) {
-        if (savedHistoryTokens == null) {
-            historyTokensSum = 0
-            hasHistoryTokens = false
+    /** Восстанавливает накопленные токены сессии из сохранённого UI-состояния. */
+    fun restoreCumulativeTokens(savedInputTokens: Int?, savedOutputTokens: Int?) {
+        if (savedInputTokens == null && savedOutputTokens == null) {
+            cumulativeInputTokensSum = 0
+            cumulativeOutputTokensSum = 0
+            hasCumulativeTokens = false
             return
         }
-        historyTokensSum = savedHistoryTokens.coerceAtLeast(0)
-        hasHistoryTokens = true
+
+        cumulativeInputTokensSum = savedInputTokens?.coerceAtLeast(0) ?: 0
+        cumulativeOutputTokensSum = savedOutputTokens?.coerceAtLeast(0) ?: 0
+        hasCumulativeTokens = true
     }
 
     suspend fun send(userText: String, temperature: Float?): AgentTurn {
         // 1) добавляем пользовательское сообщение в память
-        history += InputMessage(role = "user", content = userText)
-        trimHistoryIfNeeded()
+        fullHistory += InputMessage(role = "user", content = userText)
+        maybeRefreshSummary(temperature)
 
         val start = SystemClock.elapsedRealtime()
 
-        // 2) запрос с полным контекстом
+        // 2) запрос с управляемым контекстом: summary + последние N сообщений
         val resp = api.createResponse(
             ResponsesRequest(
                 model = model,
-                input = history,
+                input = buildContextMessages(),
                 stream = false,
                 temperature = temperature
             )
@@ -68,27 +92,20 @@ class ChatAgent(
         val assistantText = resp.extractText().ifBlank { "(пустой ответ)" }
 
         // 3) добавляем ответ ассистента в память
-        history += InputMessage(role = "assistant", content = assistantText)
-        trimHistoryIfNeeded()
+        fullHistory += InputMessage(role = "assistant", content = assistantText)
+        maybeRefreshSummary(temperature)
 
         val apiUsage = resp.usage
         val currentRequestTokens = apiUsage?.inputTokens
         val modelResponseTokens = apiUsage?.outputTokens
-        val turnTotalTokens = apiUsage?.totalTokens ?: when {
-            currentRequestTokens != null || modelResponseTokens != null ->
-                (currentRequestTokens ?: 0) + (modelResponseTokens ?: 0)
-            else -> null
-        }
 
-        if (turnTotalTokens != null) {
-            historyTokensSum += turnTotalTokens
-            hasHistoryTokens = true
-        }
+        addToCumulative(apiUsage)
 
         val mergedUsage = (apiUsage ?: Usage()).copy(
             currentRequestTokens = currentRequestTokens,
             modelResponseTokens = modelResponseTokens,
-            historyTokens = if (hasHistoryTokens) historyTokensSum else null
+            cumulativeInputTokens = if (hasCumulativeTokens) cumulativeInputTokensSum else null,
+            cumulativeOutputTokens = if (hasCumulativeTokens) cumulativeOutputTokensSum else null
         )
 
         return AgentTurn(
@@ -98,10 +115,83 @@ class ChatAgent(
         )
     }
 
-    private fun trimHistoryIfNeeded() {
-        if (history.size <= maxHistoryMessages) return
-        val extra = history.size - maxHistoryMessages
-        repeat(extra) { history.removeAt(0) }
+    private suspend fun maybeRefreshSummary(temperature: Float?) {
+        val oldMessagesCount = (fullHistory.size - RECENT_MESSAGES_COUNT).coerceAtLeast(0)
+        if (oldMessagesCount <= 0) {
+            summary = null
+            summarizedMessagesCount = 0
+            return
+        }
+
+        val shouldRefresh = summary == null ||
+            (oldMessagesCount - summarizedMessagesCount) >= SUMMARY_BATCH_SIZE
+
+        if (!shouldRefresh) return
+
+        val oldMessages = fullHistory.take(oldMessagesCount)
+        summary = generateSummary(oldMessages, temperature)
+        summarizedMessagesCount = oldMessagesCount
+    }
+
+    private fun buildContextMessages(): List<InputMessage> {
+        val recentMessages = fullHistory.takeLast(maxHistoryMessages.coerceAtMost(RECENT_MESSAGES_COUNT))
+        val summaryMessage = summary?.takeIf { it.isNotBlank() }?.let {
+            InputMessage(
+                role = SUMMARY_ROLE,
+                content = "Краткое summary предыдущего диалога:\n$it"
+            )
+        }
+        return listOfNotNull(summaryMessage) + recentMessages
+    }
+
+    private suspend fun generateSummary(messages: List<InputMessage>, temperature: Float?): String {
+        val dialog = messages.joinToString(separator = "\n") { msg ->
+            "${msg.role}: ${msg.content}"
+        }
+
+        val summaryPrompt = """
+            Суммаризируй диалог кратко и по делу.
+            Сохрани:
+            - ключевые факты и договорённости,
+            - важные требования пользователя,
+            - открытые вопросы,
+            - технический контекст.
+
+            Не добавляй информацию, которой нет в диалоге.
+            Верни только summary без вводных фраз.
+
+            Диалог:
+            $dialog
+        """.trimIndent()
+
+        val summaryResponse = api.createResponse(
+            ResponsesRequest(
+                model = model,
+                input = listOf(InputMessage(role = "user", content = summaryPrompt)),
+                stream = false,
+                temperature = temperature
+            )
+        )
+
+        if (summaryResponse.error != null) {
+            throw IllegalStateException(summaryResponse.error.message ?: "RouterAI summary error")
+        }
+
+        addToCumulative(summaryResponse.usage)
+
+        return summaryResponse.extractText().ifBlank { "Краткое summary недоступно." }
+    }
+
+    private fun addToCumulative(usage: Usage?) {
+        if (usage == null) return
+
+        val input = usage.inputTokens
+        val output = usage.outputTokens
+        if (input == null && output == null) return
+
+        cumulativeInputTokensSum += (input ?: 0)
+        cumulativeOutputTokensSum += (output ?: 0)
+        hasCumulativeTokens = true
     }
 }
 
