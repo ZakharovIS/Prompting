@@ -2,16 +2,18 @@ package ru.zis.prompting
 
 import android.app.Application
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.zis.prompting.agent.ChatAgent
+import ru.zis.prompting.agent.ContextStrategy
+import ru.zis.prompting.data.InputMessage
 import ru.zis.prompting.data.Usage
 import ru.zis.prompting.db.ChatRepository
 import ru.zis.prompting.network.RouterAiApiFactory
@@ -37,6 +39,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var historyLoading by mutableStateOf(true)
         private set
 
+    var strategy by mutableStateOf(ContextStrategy.SLIDING_WINDOW)
+        private set
+
+    var facts by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+
+    var branchNames by mutableStateOf<List<String>>(listOf("main"))
+        private set
+
+    var checkpointNames by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    var activeBranch by mutableStateOf("main")
+        private set
+
     val model = "deepseek/deepseek-v3.2"
 
     private val api = RouterAiApiFactory.create()
@@ -53,52 +70,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadHistory() {
         viewModelScope.launch(Dispatchers.IO) {
-            val state = repository.load()
+            val state = repository.load(strategy)
             withContext(Dispatchers.Main) {
                 if (state != null) {
+                    strategy = state.strategy
                     messages.addAll(state.uiMessages)
-                    agent.restoreHistory(state.agentHistory, state.summary)
-                    val (savedInput, savedOutput) = extractSavedCumulativeTokens(state.uiMessages)
-                    agent.restoreCumulativeTokens(savedInput, savedOutput)
+                    agent.restoreState(state.memory)
+                } else {
+                    agent.setStrategy(strategy)
                 }
+                refreshDerivedState()
                 historyLoading = false
             }
         }
-    }
-
-    private fun extractSavedCumulativeTokens(uiMessages: List<UiMessage>): Pair<Int?, Int?> {
-        val lastInputFromUsage = uiMessages
-            .asReversed()
-            .firstNotNullOfOrNull { it.usage?.cumulativeInputTokens }
-
-        val lastOutputFromUsage = uiMessages
-            .asReversed()
-            .firstNotNullOfOrNull { it.usage?.cumulativeOutputTokens }
-
-        if (lastInputFromUsage != null || lastOutputFromUsage != null) {
-            return (lastInputFromUsage?.coerceAtLeast(0)) to (lastOutputFromUsage?.coerceAtLeast(0))
-        }
-
-        // Fallback для старых сохранений: суммируем usage по assistant-ходам.
-        val inputSum = uiMessages
-            .asSequence()
-            .filter { it.role == "assistant" }
-            .mapNotNull { msg ->
-                val u = msg.usage ?: return@mapNotNull null
-                u.currentRequestTokens ?: u.inputTokens
-            }
-            .sum()
-
-        val outputSum = uiMessages
-            .asSequence()
-            .filter { it.role == "assistant" }
-            .mapNotNull { msg ->
-                val u = msg.usage ?: return@mapNotNull null
-                u.modelResponseTokens ?: u.outputTokens
-            }
-            .sum()
-
-        return (if (inputSum > 0) inputSum else null) to (if (outputSum > 0) outputSum else null)
     }
 
     // ─── Публичное API ────────────────────────────────────────────────────
@@ -108,7 +92,67 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         messages.clear()
         error = null
         loading = false
+        strategy = ContextStrategy.SLIDING_WINDOW
+        refreshDerivedState()
         viewModelScope.launch(Dispatchers.IO) { repository.clear() }
+    }
+
+    fun switchStrategy(newStrategy: ContextStrategy) {
+        if (loading || historyLoading || newStrategy == strategy) return
+
+        loading = true
+        error = null
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                saveCurrentStrategyState()
+
+                val loaded = repository.load(newStrategy)
+                withContext(Dispatchers.Main) {
+                    strategy = newStrategy
+                    messages.clear()
+
+                    if (loaded != null) {
+                        agent.restoreState(loaded.memory.copy(strategy = newStrategy))
+                        messages.addAll(loaded.uiMessages)
+                    } else {
+                        agent.clear()
+                        agent.setStrategy(newStrategy)
+                    }
+
+                    refreshDerivedState()
+                    loading = false
+                }
+            } catch (t: Throwable) {
+                withContext(Dispatchers.Main) {
+                    error = t.message ?: t.toString()
+                    loading = false
+                }
+            }
+        }
+    }
+
+    fun saveCheckpoint(name: String) {
+        if (strategy != ContextStrategy.BRANCHING) return
+        if (!agent.saveCheckpoint(name)) return
+        refreshDerivedState()
+        persistCurrentState()
+    }
+
+    fun createBranch(checkpointName: String, branchName: String) {
+        if (strategy != ContextStrategy.BRANCHING) return
+        if (!agent.createBranch(checkpointName, branchName)) return
+        refreshDerivedState()
+        persistCurrentState()
+    }
+
+    fun switchBranch(name: String) {
+        if (strategy != ContextStrategy.BRANCHING) return
+        if (!agent.switchBranch(name)) return
+        messages.clear()
+        messages.addAll(agent.activeBranchHistory().toUiMessages())
+        refreshDerivedState()
+        persistCurrentState()
     }
 
     fun send() {
@@ -147,11 +191,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // Сохраняем после успешного ответа
-                repository.save(
-                    uiMessages = messages.toList(),
-                    agentHistory = agent.snapshotHistory(),
-                    summary = agent.snapshotSummary()
-                )
+                saveCurrentStrategyState()
+                withContext(Dispatchers.Main) { refreshDerivedState() }
             } catch (t: Throwable) {
                 withContext(Dispatchers.Main) {
                     error = t.message ?: t.toString()
@@ -160,4 +201,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    private fun refreshDerivedState() {
+        facts = agent.currentFacts()
+        branchNames = agent.branchNames()
+        checkpointNames = agent.checkpointNames()
+        activeBranch = agent.activeBranch()
+    }
+
+    private fun persistCurrentState() {
+        viewModelScope.launch(Dispatchers.IO) {
+            saveCurrentStrategyState()
+        }
+    }
+
+    private suspend fun saveCurrentStrategyState() {
+        repository.save(
+            strategy = strategy,
+            uiMessages = messages.toList(),
+            memory = agent.snapshotState()
+        )
+    }
 }
+
+private fun List<InputMessage>.toUiMessages(): List<UiMessage> =
+    map { UiMessage(role = it.role, text = it.content) }

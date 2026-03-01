@@ -9,45 +9,72 @@ import ru.zis.prompting.data.Usage
 class ChatAgent(
     private val api: RouterAiApi,
     private val model: String = "openai/gpt-5.2",
-    private val maxHistoryMessages: Int = 40
+    private val maxHistoryMessages: Int = 40,
+    private var strategy: ContextStrategy = ContextStrategy.SLIDING_WINDOW
 ) {
     private val fullHistory = mutableListOf<InputMessage>()
-    private var summary: String? = null
-    private var summarizedMessagesCount: Int = 0
+    private val factsManager = StickyFactsManager(api = api, model = model)
+    private val branchManager = BranchManager()
 
     private var cumulativeInputTokensSum: Int = 0
     private var cumulativeOutputTokensSum: Int = 0
     private var hasCumulativeTokens: Boolean = false
 
-    companion object {
-        const val RECENT_MESSAGES_COUNT = 5
-        const val SUMMARY_BATCH_SIZE = 10
-        private const val SUMMARY_ROLE = "system"
-    }
-
     fun clear() {
         fullHistory.clear()
-        summary = null
-        summarizedMessagesCount = 0
+        factsManager.clear()
+        branchManager.clear()
         cumulativeInputTokensSum = 0
         cumulativeOutputTokensSum = 0
         hasCumulativeTokens = false
     }
 
-    fun snapshotHistory(): List<InputMessage> = fullHistory.toList()
+    fun setStrategy(newStrategy: ContextStrategy) {
+        strategy = newStrategy
+    }
 
-    fun snapshotSummary(): String? = summary
+    fun currentStrategy(): ContextStrategy = strategy
 
-    /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */
-    fun restoreHistory(saved: List<InputMessage>, savedSummary: String?) {
+    fun currentFacts(): Map<String, String> = factsManager.currentFacts()
+
+    fun branchNames(): List<String> = branchManager.branchNames()
+
+    fun checkpointNames(): List<String> = branchManager.checkpointNames()
+
+    fun activeBranch(): String = branchManager.activeBranch()
+
+    fun activeBranchHistory(): List<InputMessage> = branchManager.activeHistory()
+
+    fun saveCheckpoint(name: String): Boolean = branchManager.saveCheckpoint(name)
+
+    fun createBranch(checkpointName: String, branchName: String): Boolean =
+        branchManager.createBranch(checkpointName, branchName)
+
+    fun switchBranch(name: String): Boolean = branchManager.switchBranch(name)
+
+    fun snapshotState(): AgentMemoryState = AgentMemoryState(
+        strategy = strategy,
+        fullHistory = fullHistory.toList(),
+        facts = factsManager.snapshotFacts(),
+        branches = branchManager.snapshotBranches(),
+        checkpoints = branchManager.snapshotCheckpoints(),
+        activeBranch = branchManager.activeBranch(),
+        cumulativeInputTokens = if (hasCumulativeTokens) cumulativeInputTokensSum else null,
+        cumulativeOutputTokens = if (hasCumulativeTokens) cumulativeOutputTokensSum else null
+    )
+
+    fun restoreState(state: AgentMemoryState) {
+        strategy = state.strategy
         fullHistory.clear()
-        fullHistory.addAll(saved)
-        summary = savedSummary?.takeIf { it.isNotBlank() }
-        summarizedMessagesCount = if (summary != null) {
-            (fullHistory.size - RECENT_MESSAGES_COUNT).coerceAtLeast(0)
-        } else {
-            0
-        }
+        fullHistory.addAll(state.fullHistory)
+        factsManager.restoreFacts(state.facts)
+        branchManager.restore(
+            savedBranches = state.branches,
+            savedCheckpoints = state.checkpoints,
+            activeBranch = state.activeBranch,
+            fallbackMainHistory = state.fullHistory
+        )
+        restoreCumulativeTokens(state.cumulativeInputTokens, state.cumulativeOutputTokens)
     }
 
     /** Восстанавливает накопленные токены сессии из сохранённого UI-состояния. */
@@ -65,13 +92,19 @@ class ChatAgent(
     }
 
     suspend fun send(userText: String, temperature: Float?): AgentTurn {
-        // 1) добавляем пользовательское сообщение в память
-        fullHistory += InputMessage(role = "user", content = userText)
-        maybeRefreshSummary(temperature)
+        val userMessage = InputMessage(role = "user", content = userText)
+        addMessageToMemory(userMessage)
+
+        if (strategy == ContextStrategy.STICKY_FACTS) {
+            val factsUsage = factsManager.refreshFromDialog(
+                dialogHistory = fullHistory,
+                temperature = temperature
+            )
+            addToCumulative(factsUsage)
+        }
 
         val start = SystemClock.elapsedRealtime()
 
-        // 2) запрос с управляемым контекстом: summary + последние N сообщений
         val resp = api.createResponse(
             ResponsesRequest(
                 model = model,
@@ -84,16 +117,12 @@ class ChatAgent(
         val latencyMs = SystemClock.elapsedRealtime() - start
 
         if (resp.error != null) {
-            // если ошибка — откатывать history или оставлять? обычно лучше оставлять user-turn,
-            // чтобы пользователь мог повторить/исправить. Здесь оставляем.
             throw IllegalStateException(resp.error.message ?: "RouterAI error")
         }
 
         val assistantText = resp.extractText().ifBlank { "(пустой ответ)" }
 
-        // 3) добавляем ответ ассистента в память
-        fullHistory += InputMessage(role = "assistant", content = assistantText)
-        maybeRefreshSummary(temperature)
+        addMessageToMemory(InputMessage(role = "assistant", content = assistantText))
 
         val apiUsage = resp.usage
         val currentRequestTokens = apiUsage?.inputTokens
@@ -115,71 +144,30 @@ class ChatAgent(
         )
     }
 
-    private suspend fun maybeRefreshSummary(temperature: Float?) {
-        val oldMessagesCount = (fullHistory.size - RECENT_MESSAGES_COUNT).coerceAtLeast(0)
-        if (oldMessagesCount <= 0) {
-            summary = null
-            summarizedMessagesCount = 0
-            return
+    private fun addMessageToMemory(message: InputMessage) {
+        when (strategy) {
+            ContextStrategy.BRANCHING -> branchManager.appendToActive(message)
+            else -> fullHistory += message
         }
-
-        val shouldRefresh = summary == null ||
-            (oldMessagesCount - summarizedMessagesCount) >= SUMMARY_BATCH_SIZE
-
-        if (!shouldRefresh) return
-
-        val oldMessages = fullHistory.take(oldMessagesCount)
-        summary = generateSummary(oldMessages, temperature)
-        summarizedMessagesCount = oldMessagesCount
     }
 
     private fun buildContextMessages(): List<InputMessage> {
-        val recentMessages = fullHistory.takeLast(maxHistoryMessages.coerceAtMost(RECENT_MESSAGES_COUNT))
-        val summaryMessage = summary?.takeIf { it.isNotBlank() }?.let {
-            InputMessage(
-                role = SUMMARY_ROLE,
-                content = "Краткое summary предыдущего диалога:\n$it"
-            )
+        val windowSize = maxHistoryMessages.coerceAtLeast(1)
+        return when (strategy) {
+            ContextStrategy.SLIDING_WINDOW -> {
+                fullHistory.takeLast(windowSize)
+            }
+
+            ContextStrategy.STICKY_FACTS -> {
+                val recentMessages = fullHistory.takeLast(windowSize)
+                val factsSystem = factsManager.buildFactsSystemMessage()
+                listOfNotNull(factsSystem) + recentMessages
+            }
+
+            ContextStrategy.BRANCHING -> {
+                branchManager.activeHistory().takeLast(windowSize)
+            }
         }
-        return listOfNotNull(summaryMessage) + recentMessages
-    }
-
-    private suspend fun generateSummary(messages: List<InputMessage>, temperature: Float?): String {
-        val dialog = messages.joinToString(separator = "\n") { msg ->
-            "${msg.role}: ${msg.content}"
-        }
-
-        val summaryPrompt = """
-            Суммаризируй диалог кратко и по делу.
-            Сохрани:
-            - ключевые факты и договорённости,
-            - важные требования пользователя,
-            - открытые вопросы,
-            - технический контекст.
-
-            Не добавляй информацию, которой нет в диалоге.
-            Верни только summary без вводных фраз.
-
-            Диалог:
-            $dialog
-        """.trimIndent()
-
-        val summaryResponse = api.createResponse(
-            ResponsesRequest(
-                model = model,
-                input = listOf(InputMessage(role = "user", content = summaryPrompt)),
-                stream = false,
-                temperature = temperature
-            )
-        )
-
-        if (summaryResponse.error != null) {
-            throw IllegalStateException(summaryResponse.error.message ?: "RouterAI summary error")
-        }
-
-        addToCumulative(summaryResponse.usage)
-
-        return summaryResponse.extractText().ifBlank { "Краткое summary недоступно." }
     }
 
     private fun addToCumulative(usage: Usage?) {
@@ -194,6 +182,17 @@ class ChatAgent(
         hasCumulativeTokens = true
     }
 }
+
+data class AgentMemoryState(
+    val strategy: ContextStrategy,
+    val fullHistory: List<InputMessage> = emptyList(),
+    val facts: Map<String, String> = emptyMap(),
+    val branches: Map<String, List<InputMessage>> = emptyMap(),
+    val checkpoints: Map<String, List<InputMessage>> = emptyMap(),
+    val activeBranch: String = BranchManager.MAIN_BRANCH,
+    val cumulativeInputTokens: Int? = null,
+    val cumulativeOutputTokens: Int? = null
+)
 
 data class AgentTurn(
     val text: String,

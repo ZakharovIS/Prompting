@@ -2,6 +2,8 @@ package ru.zis.prompting.db
 
 import kotlinx.serialization.json.Json
 import ru.zis.prompting.UiMessage
+import ru.zis.prompting.agent.AgentMemoryState
+import ru.zis.prompting.agent.ContextStrategy
 import ru.zis.prompting.data.InputMessage
 
 /**
@@ -12,50 +14,80 @@ class ChatRepository(private val dao: ChatSessionDao) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Сохраняет текущее состояние UI-сообщений, истории агента и summary. */
+    /** Сохраняет состояние конкретной стратегии. */
     suspend fun save(
+        strategy: ContextStrategy,
         uiMessages: List<UiMessage>,
-        agentHistory: List<InputMessage>,
-        summary: String?
+        memory: AgentMemoryState
     ) {
         val entity = ChatSessionEntity(
-            sessionId = 1,
+            sessionId = strategy.sessionId,
             messagesJson = json.encodeToString(uiMessages.map { it.toSerializable() }),
-            agentHistoryJson = json.encodeToString(agentHistory),
-            summaryJson = summary.orEmpty(),
+            agentHistoryJson = json.encodeToString(memory.fullHistory),
+            factsJson = json.encodeToString(memory.facts),
+            branchesJson = json.encodeToString(
+                BranchingStateSerializable(
+                    branches = memory.branches,
+                    checkpoints = memory.checkpoints
+                )
+            ),
+            activeBranch = memory.activeBranch,
+            strategyName = strategy.name,
             updatedAt = System.currentTimeMillis()
         )
         dao.upsert(entity)
     }
 
-    /** Загружает сохранённое состояние, или null если ничего нет. */
-    suspend fun load(): ChatState? {
-        val entity = dao.loadCurrent() ?: return null
-        if (entity.messagesJson == "[]") return null
+    /** Загружает состояние конкретной стратегии, или null если ничего нет. */
+    suspend fun load(strategy: ContextStrategy): ChatState? {
+        val entity = dao.loadById(strategy.sessionId) ?: return null
         return try {
             val uiMessages = json
                 .decodeFromString<List<UiMessageSerializable>>(entity.messagesJson)
                 .map { it.toUiMessage() }
-            val agentHistory = json
-                .decodeFromString<List<InputMessage>>(entity.agentHistoryJson)
+
+            val fullHistory = json.decodeFromString<List<InputMessage>>(entity.agentHistoryJson)
+            val facts = json.decodeFromString<Map<String, String>>(entity.factsJson)
+
+            val branching = json.decodeFromString<BranchingStateSerializable>(entity.branchesJson)
+            val strategyFromDb = ContextStrategy.fromName(entity.strategyName)
+
             ChatState(
                 uiMessages = uiMessages,
-                agentHistory = agentHistory,
-                summary = entity.summaryJson.takeIf { it.isNotBlank() }
+                strategy = strategyFromDb,
+                memory = AgentMemoryState(
+                    strategy = strategyFromDb,
+                    fullHistory = fullHistory,
+                    facts = facts,
+                    branches = branching.branches,
+                    checkpoints = branching.checkpoints,
+                    activeBranch = entity.activeBranch
+                )
             )
         } catch (e: Exception) {
             null
         }
     }
 
-    /** Удаляет сохранённую сессию (сброс чата). */
+    /** Удаляет сохранённую сессию стратегии. */
+    suspend fun clear(strategy: ContextStrategy) {
+        dao.deleteById(strategy.sessionId)
+    }
+
+    /** Удаляет все стратегии (полный сброс). */
     suspend fun clear() {
-        dao.deleteCurrent()
+        dao.deleteAll()
     }
 }
 
 data class ChatState(
     val uiMessages: List<UiMessage>,
-    val agentHistory: List<InputMessage>,
-    val summary: String?
+    val strategy: ContextStrategy,
+    val memory: AgentMemoryState
+)
+
+@kotlinx.serialization.Serializable
+private data class BranchingStateSerializable(
+    val branches: Map<String, List<InputMessage>> = emptyMap(),
+    val checkpoints: Map<String, List<InputMessage>> = emptyMap()
 )

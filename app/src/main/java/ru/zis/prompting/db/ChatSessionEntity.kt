@@ -9,12 +9,20 @@ import androidx.room.PrimaryKey
  */
 @Entity(tableName = "chat_sessions")
 data class ChatSessionEntity(
-    @PrimaryKey val sessionId: Int = 1,
+    @PrimaryKey val sessionId: Int = 0,
     /** JSON-массив объектов UiMessage */
     val messagesJson: String = "[]",
     /** JSON-массив объектов InputMessage (история агента) */
     val agentHistoryJson: String = "[]",
-    /** Накопленный summary старой части диалога */
+    /** Legacy поле, оставлено для совместимости миграций. */
     val summaryJson: String = "",
+    /** JSON-словарь sticky facts */
+    val factsJson: String = "{}",
+    /** JSON-объект branching состояния: branches + checkpoints */
+    val branchesJson: String = "{}",
+    /** Имя активной ветки в branching-режиме */
+    val activeBranch: String = "main",
+    /** Название стратегии для удобной отладки */
+    val strategyName: String = "SLIDING_WINDOW",
     val updatedAt: Long = System.currentTimeMillis()
 )

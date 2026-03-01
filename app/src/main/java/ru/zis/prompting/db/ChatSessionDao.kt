@@ -11,11 +11,15 @@ interface ChatSessionDao {
     @Upsert
     suspend fun upsert(session: ChatSessionEntity)
 
-    /** Загружает текущую сессию (id = 1). */
-    @Query("SELECT * FROM chat_sessions WHERE sessionId = 1 LIMIT 1")
-    suspend fun loadCurrent(): ChatSessionEntity?
+    /** Загружает сессию по ID (ID = ordinal стратегии). */
+    @Query("SELECT * FROM chat_sessions WHERE sessionId = :sessionId LIMIT 1")
+    suspend fun loadById(sessionId: Int): ChatSessionEntity?
 
-    /** Удаляет текущую сессию (используется при сбросе чата). */
-    @Query("DELETE FROM chat_sessions WHERE sessionId = 1")
-    suspend fun deleteCurrent()
+    /** Удаляет сессию по ID стратегии. */
+    @Query("DELETE FROM chat_sessions WHERE sessionId = :sessionId")
+    suspend fun deleteById(sessionId: Int)
+
+    /** Удаляет все стратегии (полный сброс). */
+    @Query("DELETE FROM chat_sessions")
+    suspend fun deleteAll()
 }
