@@ -12,6 +12,9 @@ class ChatAgent(
     private val maxHistoryMessages: Int = 40
 ) {
     private val fullHistory = mutableListOf<InputMessage>()
+    private var workingMemory: WorkingMemory = WorkingMemory()
+    private val longTermMemory = mutableListOf<LongTermMemoryItem>()
+
     private var summary: String? = null
     private var summarizedMessagesCount: Int = 0
 
@@ -27,6 +30,7 @@ class ChatAgent(
 
     fun clear() {
         fullHistory.clear()
+        workingMemory = WorkingMemory()
         summary = null
         summarizedMessagesCount = 0
         cumulativeInputTokensSum = 0
@@ -35,6 +39,10 @@ class ChatAgent(
     }
 
     fun snapshotHistory(): List<InputMessage> = fullHistory.toList()
+
+    fun snapshotWorkingMemory(): WorkingMemory = workingMemory
+
+    fun snapshotLongTermMemory(): List<LongTermMemoryItem> = longTermMemory.toList()
 
     fun snapshotSummary(): String? = summary
 
@@ -48,6 +56,12 @@ class ChatAgent(
         } else {
             0
         }
+    }
+
+    fun restoreMemoryLayers(savedWorkingMemory: WorkingMemory?, savedLongTermMemory: List<LongTermMemoryItem>) {
+        workingMemory = savedWorkingMemory ?: WorkingMemory()
+        longTermMemory.clear()
+        longTermMemory.addAll(savedLongTermMemory)
     }
 
     /** Восстанавливает накопленные токены сессии из сохранённого UI-состояния. */
@@ -67,6 +81,8 @@ class ChatAgent(
     suspend fun send(userText: String, temperature: Float?): AgentTurn {
         // 1) добавляем пользовательское сообщение в память
         fullHistory += InputMessage(role = "user", content = userText)
+        updateWorkingMemory()
+        captureLongTermMemoryFromUser(userText)
         maybeRefreshSummary(temperature)
 
         val start = SystemClock.elapsedRealtime()
@@ -93,6 +109,7 @@ class ChatAgent(
 
         // 3) добавляем ответ ассистента в память
         fullHistory += InputMessage(role = "assistant", content = assistantText)
+        updateWorkingMemory()
         maybeRefreshSummary(temperature)
 
         val apiUsage = resp.usage
@@ -135,13 +152,111 @@ class ChatAgent(
 
     private fun buildContextMessages(): List<InputMessage> {
         val recentMessages = fullHistory.takeLast(maxHistoryMessages.coerceAtMost(RECENT_MESSAGES_COUNT))
+
+        val longTermSystem = buildLongTermSystemMessage()
+        val workingSystem = buildWorkingSystemMessage()
+
         val summaryMessage = summary?.takeIf { it.isNotBlank() }?.let {
             InputMessage(
                 role = SUMMARY_ROLE,
                 content = "Краткое summary предыдущего диалога:\n$it"
             )
         }
-        return listOfNotNull(summaryMessage) + recentMessages
+        return listOfNotNull(longTermSystem, workingSystem, summaryMessage) + recentMessages
+    }
+
+    private fun buildWorkingSystemMessage(): InputMessage? {
+        if (workingMemory.goal.isNullOrBlank() &&
+            workingMemory.keyFacts.isEmpty() &&
+            workingMemory.openQuestions.isEmpty()
+        ) return null
+
+        val content = buildString {
+            appendLine("Рабочая память текущей задачи:")
+            workingMemory.goal?.takeIf { it.isNotBlank() }?.let {
+                appendLine("Цель: $it")
+            }
+            if (workingMemory.keyFacts.isNotEmpty()) {
+                appendLine("Ключевые данные:")
+                workingMemory.keyFacts.forEach { appendLine("- $it") }
+            }
+            if (workingMemory.openQuestions.isNotEmpty()) {
+                appendLine("Открытые вопросы:")
+                workingMemory.openQuestions.forEach { appendLine("- $it") }
+            }
+        }.trim()
+
+        return InputMessage(role = SUMMARY_ROLE, content = content)
+    }
+
+    private fun buildLongTermSystemMessage(): InputMessage? {
+        if (longTermMemory.isEmpty()) return null
+
+        val items = longTermMemory.takeLast(15)
+        val content = buildString {
+            appendLine("Долговременная память пользователя:")
+            items.forEach { item ->
+                appendLine("- [${item.category}] ${item.content}")
+            }
+            appendLine("Используй только если релевантно текущему запросу.")
+        }.trim()
+
+        return InputMessage(role = SUMMARY_ROLE, content = content)
+    }
+
+    private fun updateWorkingMemory() {
+        val recentUsers = fullHistory
+            .asSequence()
+            .filter { it.role == "user" }
+            .map { it.content.trim() }
+            .filter { it.isNotBlank() }
+            .toList()
+
+        if (recentUsers.isEmpty()) {
+            workingMemory = WorkingMemory()
+            return
+        }
+
+        val goal = recentUsers.last().take(240)
+
+        val keyFacts = recentUsers
+            .takeLast(4)
+            .map { it.replace("\n", " ").trim() }
+            .distinct()
+
+        val openQuestions = recentUsers
+            .filter { it.contains("?") }
+            .takeLast(3)
+            .distinct()
+
+        workingMemory = WorkingMemory(
+            goal = goal,
+            keyFacts = keyFacts,
+            openQuestions = openQuestions
+        )
+    }
+
+    private fun captureLongTermMemoryFromUser(userText: String) {
+        val normalized = userText.trim()
+        if (normalized.isBlank()) return
+
+        val lower = normalized.lowercase()
+        val category = when {
+            lower.contains("предпочита") || lower.contains("люблю") || lower.contains("не люблю") -> "preference"
+            lower.contains("меня зовут") || lower.startsWith("я ") || lower.contains("мой ") || lower.contains("моя ") -> "fact"
+            lower.contains("договор") || lower.contains("решили") || lower.contains("пусть будет") -> "decision"
+            else -> null
+        } ?: return
+
+        val exists = longTermMemory.any {
+            it.category == category && it.content.equals(normalized, ignoreCase = true)
+        }
+        if (exists) return
+
+        longTermMemory += LongTermMemoryItem(
+            category = category,
+            content = normalized
+        )
     }
 
     private suspend fun generateSummary(messages: List<InputMessage>, temperature: Float?): String {

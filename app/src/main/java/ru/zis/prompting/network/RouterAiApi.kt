@@ -32,10 +32,10 @@ object RouterAiApiFactory {
         }
 
         val client = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS) // установка соединения
-            .writeTimeout(30, TimeUnit.SECONDS)   // отправка тела запроса
+            .connectTimeout(60, TimeUnit.SECONDS) // установка соединения
+            .writeTimeout(60, TimeUnit.SECONDS)   // отправка тела запроса
             .readTimeout(60, TimeUnit.SECONDS)    // ожидание ответа/чтение
-            .callTimeout(90, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val key = BuildConfig.ROUTERAI_API_KEY
                 val req: Request = chain.request().newBuilder()

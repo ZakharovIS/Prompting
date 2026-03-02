@@ -2,10 +2,10 @@ package ru.zis.prompting
 
 import android.app.Application
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -54,16 +54,61 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadHistory() {
         viewModelScope.launch(Dispatchers.IO) {
             val state = repository.load()
+            val longTermMemory = repository.loadLongTermMemory()
             withContext(Dispatchers.Main) {
                 if (state != null) {
                     messages.addAll(state.uiMessages)
                     agent.restoreHistory(state.agentHistory, state.summary)
+                    agent.restoreMemoryLayers(state.workingMemory, longTermMemory)
                     val (savedInput, savedOutput) = extractSavedCumulativeTokens(state.uiMessages)
                     agent.restoreCumulativeTokens(savedInput, savedOutput)
+                } else {
+                    agent.restoreMemoryLayers(savedWorkingMemory = null, savedLongTermMemory = longTermMemory)
                 }
                 historyLoading = false
             }
         }
+    }
+
+    fun shortTermMemoryDump(): String {
+        val history = agent.snapshotHistory()
+        if (history.isEmpty()) return "Краткосрочная память пуста"
+
+        return buildString {
+            appendLine("Текущий диалог (${history.size} сообщений):")
+            history.forEachIndexed { index, m ->
+                appendLine("${index + 1}. ${m.role}: ${m.content}")
+            }
+        }.trim()
+    }
+
+    fun workingMemoryDump(): String {
+        val wm = agent.snapshotWorkingMemory()
+        if (wm.goal.isNullOrBlank() && wm.keyFacts.isEmpty() && wm.openQuestions.isEmpty()) {
+            return "Рабочая память пуста"
+        }
+
+        return buildString {
+            appendLine("Цель: ${wm.goal ?: "—"}")
+            appendLine()
+            appendLine("Ключевые данные:")
+            if (wm.keyFacts.isEmpty()) appendLine("- —") else wm.keyFacts.forEach { appendLine("- $it") }
+            appendLine()
+            appendLine("Открытые вопросы:")
+            if (wm.openQuestions.isEmpty()) appendLine("- —") else wm.openQuestions.forEach { appendLine("- $it") }
+        }.trim()
+    }
+
+    fun longTermMemoryDump(): String {
+        val items = agent.snapshotLongTermMemory()
+        if (items.isEmpty()) return "Долговременная память пуста"
+
+        return buildString {
+            appendLine("Профиль/знания (${items.size}):")
+            items.forEachIndexed { index, item ->
+                appendLine("${index + 1}. [${item.category}] ${item.content}")
+            }
+        }.trim()
     }
 
     private fun extractSavedCumulativeTokens(uiMessages: List<UiMessage>): Pair<Int?, Int?> {
@@ -150,8 +195,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 repository.save(
                     uiMessages = messages.toList(),
                     agentHistory = agent.snapshotHistory(),
-                    summary = agent.snapshotSummary()
+                    summary = agent.snapshotSummary(),
+                    workingMemory = agent.snapshotWorkingMemory()
                 )
+                repository.saveLongTermMemory(agent.snapshotLongTermMemory())
             } catch (t: Throwable) {
                 withContext(Dispatchers.Main) {
                     error = t.message ?: t.toString()

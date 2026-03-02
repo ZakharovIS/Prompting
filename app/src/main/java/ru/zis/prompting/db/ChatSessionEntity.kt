@@ -16,5 +16,7 @@ data class ChatSessionEntity(
     val agentHistoryJson: String = "[]",
     /** Накопленный summary старой части диалога */
     val summaryJson: String = "",
+    /** Рабочая память текущей задачи */
+    val workingMemoryJson: String = "{}",
     val updatedAt: Long = System.currentTimeMillis()
 )

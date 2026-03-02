@@ -8,5 +8,10 @@ class App : Application() {
 
     val database by lazy { AppDatabase.getInstance(this) }
 
-    val chatRepository by lazy { ChatRepository(database.chatSessionDao()) }
+    val chatRepository by lazy {
+        ChatRepository(
+            chatDao = database.chatSessionDao(),
+            longTermDao = database.longTermMemoryDao()
+        )
+    }
 }

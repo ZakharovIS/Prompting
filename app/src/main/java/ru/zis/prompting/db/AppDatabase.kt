@@ -8,13 +8,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ChatSessionEntity::class],
-    version = 2,
+    entities = [ChatSessionEntity::class, LongTermMemoryEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun chatSessionDao(): ChatSessionDao
+    abstract fun longTermMemoryDao(): LongTermMemoryDao
 
     companion object {
         @Volatile
@@ -26,6 +27,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN workingMemoryJson TEXT NOT NULL DEFAULT '{}'")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `long_term_memory` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -34,6 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "chat_db"
                 )
                     .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_2_3)
                     .build()
                     .also { INSTANCE = it }
             }
