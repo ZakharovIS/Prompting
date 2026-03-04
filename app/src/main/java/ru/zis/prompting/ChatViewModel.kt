@@ -14,7 +14,9 @@ import kotlinx.coroutines.withContext
 import ru.zis.prompting.agent.ChatAgent
 import ru.zis.prompting.data.Usage
 import ru.zis.prompting.db.ChatRepository
+import ru.zis.prompting.db.UserProfileRepository
 import ru.zis.prompting.network.RouterAiApiFactory
+import ru.zis.prompting.profile.UserProfile
 
 data class UiMessage(
     val role: String,              // "user" | "assistant"
@@ -45,6 +47,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: ChatRepository =
         (application as App).chatRepository
 
+    private val profileRepository: UserProfileRepository =
+        (application as App).userProfileRepository
+
+    var activeProfileName by mutableStateOf<String?>(null)
+        private set
+
     init {
         loadHistory()
     }
@@ -55,6 +63,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val state = repository.load()
             val longTermMemory = repository.loadLongTermMemory()
+            val activeProfile = profileRepository.getActive()
             withContext(Dispatchers.Main) {
                 if (state != null) {
                     messages.addAll(state.uiMessages)
@@ -65,9 +74,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     agent.restoreMemoryLayers(savedWorkingMemory = null, savedLongTermMemory = longTermMemory)
                 }
+                applyActiveProfile(activeProfile)
                 historyLoading = false
             }
         }
+    }
+
+    fun refreshActiveProfile() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = profileRepository.getActive()
+            withContext(Dispatchers.Main) {
+                applyActiveProfile(active)
+            }
+        }
+    }
+
+    private fun applyActiveProfile(profile: UserProfile?) {
+        agent.setProfile(profile)
+        activeProfileName = profile?.name
     }
 
     fun shortTermMemoryDump(): String {
@@ -179,6 +203,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val activeProfile = profileRepository.getActive()
+                withContext(Dispatchers.Main) {
+                    applyActiveProfile(activeProfile)
+                }
+
                 val turn = agent.send(userText = text, temperature = temperature)
 
                 withContext(Dispatchers.Main) {

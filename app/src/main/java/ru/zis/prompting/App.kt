@@ -3,6 +3,7 @@ package ru.zis.prompting
 import android.app.Application
 import ru.zis.prompting.db.AppDatabase
 import ru.zis.prompting.db.ChatRepository
+import ru.zis.prompting.db.UserProfileRepository
 
 class App : Application() {
 
@@ -12,6 +13,12 @@ class App : Application() {
         ChatRepository(
             chatDao = database.chatSessionDao(),
             longTermDao = database.longTermMemoryDao()
+        )
+    }
+
+    val userProfileRepository by lazy {
+        UserProfileRepository(
+            dao = database.userProfileDao()
         )
     }
 }

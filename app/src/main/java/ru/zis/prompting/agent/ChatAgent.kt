@@ -5,6 +5,7 @@ import ru.zis.prompting.network.RouterAiApi
 import ru.zis.prompting.data.InputMessage
 import ru.zis.prompting.data.ResponsesRequest
 import ru.zis.prompting.data.Usage
+import ru.zis.prompting.profile.UserProfile
 
 class ChatAgent(
     private val api: RouterAiApi,
@@ -17,6 +18,7 @@ class ChatAgent(
 
     private var summary: String? = null
     private var summarizedMessagesCount: Int = 0
+    private var activeProfile: UserProfile? = null
 
     private var cumulativeInputTokensSum: Int = 0
     private var cumulativeOutputTokensSum: Int = 0
@@ -45,6 +47,10 @@ class ChatAgent(
     fun snapshotLongTermMemory(): List<LongTermMemoryItem> = longTermMemory.toList()
 
     fun snapshotSummary(): String? = summary
+
+    fun setProfile(profile: UserProfile?) {
+        activeProfile = profile
+    }
 
     /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */
     fun restoreHistory(saved: List<InputMessage>, savedSummary: String?) {
@@ -153,6 +159,7 @@ class ChatAgent(
     private fun buildContextMessages(): List<InputMessage> {
         val recentMessages = fullHistory.takeLast(maxHistoryMessages.coerceAtMost(RECENT_MESSAGES_COUNT))
 
+        val profileSystem = buildProfileSystemMessage()
         val longTermSystem = buildLongTermSystemMessage()
         val workingSystem = buildWorkingSystemMessage()
 
@@ -162,7 +169,33 @@ class ChatAgent(
                 content = "Краткое summary предыдущего диалога:\n$it"
             )
         }
-        return listOfNotNull(longTermSystem, workingSystem, summaryMessage) + recentMessages
+        return listOfNotNull(profileSystem, longTermSystem, workingSystem, summaryMessage) + recentMessages
+    }
+
+    private fun buildProfileSystemMessage(): InputMessage? {
+        val profile = activeProfile ?: return null
+        if (profile.name.isBlank() && profile.style.isBlank() && profile.constraints.isBlank() && profile.context.isBlank()) {
+            return null
+        }
+
+        val content = buildString {
+            appendLine("=== ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ ===")
+            appendLine("Имя профиля: ${profile.name}")
+            appendLine()
+            appendLine("СТИЛЬ ОТВЕТОВ:")
+            appendLine(profile.style.ifBlank { "Не задан" })
+            appendLine()
+            appendLine("СТРОГИЕ ОГРАНИЧЕНИЯ (соблюдать обязательно):")
+            appendLine(profile.constraints.ifBlank { "Не заданы" })
+            appendLine()
+            appendLine("КОНТЕКСТ:")
+            appendLine(profile.context.ifBlank { "Не задан" })
+            appendLine()
+            appendLine("Соблюдай стиль и контекст. Ограничения выполняй строго в каждом ответе.")
+            append("===========================")
+        }
+
+        return InputMessage(role = SUMMARY_ROLE, content = content)
     }
 
     private fun buildWorkingSystemMessage(): InputMessage? {

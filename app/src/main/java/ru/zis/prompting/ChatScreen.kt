@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -46,15 +47,31 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(vm: ChatViewModel = viewModel()) {
+fun ChatScreen(
+    onOpenProfiles: () -> Unit,
+    vm: ChatViewModel = viewModel()
+) {
     val maxPromptChars = 1500
     var memoryDialog by remember { mutableStateOf<MemoryDialogType?>(null) }
+
+    LaunchedEffect(Unit) {
+        vm.refreshActiveProfile()
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("RouterAI LLM chat") },
+                title = { Text("") },
+                navigationIcon = {
+                    TextButton(
+                        onClick = onOpenProfiles,
+                        enabled = !vm.historyLoading
+                    ) {
+                        Text("👤")
+                    }
+                },
                 actions = {
+
                     TextButton(
                         onClick = { memoryDialog = MemoryDialogType.ShortTerm },
                         enabled = !vm.historyLoading
@@ -92,6 +109,12 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                 style = MaterialTheme.typography.bodySmall
             )
 
+            Text(
+                text = "Профиль: ${vm.activeProfileName ?: "не выбран"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (vm.activeProfileName == null) MaterialTheme.colorScheme.error else Color.Unspecified
+            )
+
             /*Text(
                 text = "Температура: ${String.format(Locale.US, "%.2f", vm.temperature)}",
                 style = MaterialTheme.typography.bodyMedium
@@ -107,8 +130,12 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    CircularProgressIndicator(strokeWidth = 2.dp,
-                        modifier = Modifier.height(16.dp).width(16.dp))
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        modifier = Modifier
+                            .height(16.dp)
+                            .width(16.dp)
+                    )
                     Text("Загрузка истории...", style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -156,7 +183,10 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                     onClick = { vm.retryLastUser() },
                     enabled = !vm.loading && !vm.historyLoading && vm.messages.any { it.role == "user" }
                 ) {
-                    Icon(painterResource(R.drawable.baseline_refresh_24), contentDescription = "Повторить")
+                    Icon(
+                        painterResource(R.drawable.baseline_refresh_24),
+                        contentDescription = "Повторить"
+                    )
                     Spacer(Modifier.width(8.dp))
                     Text("Повторить запрос")
                 }
@@ -178,7 +208,10 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                         onClick = { vm.send() },
                         enabled = !vm.loading && vm.inputText.isNotBlank()
                     ) {
-                        Icon(painterResource(R.drawable.baseline_send_24), contentDescription = "Отправить")
+                        Icon(
+                            painterResource(R.drawable.baseline_send_24),
+                            contentDescription = "Отправить"
+                        )
                     }
                 }
             )
@@ -260,13 +293,13 @@ private fun MessageBubble(msg: UiMessage) {
                                     if (msg.latencyMs != null) append(" | ")
                                     append(
                                         "Tokens: запрос=${usage.currentRequestTokens ?: "?"} " +
-                                            "ответ=${usage.modelResponseTokens ?: "?"}"
+                                                "ответ=${usage.modelResponseTokens ?: "?"}"
                                     )
 
                                     if (usage.cumulativeInputTokens != null || usage.cumulativeOutputTokens != null) {
                                         append(
                                             " | за сессию: in=${usage.cumulativeInputTokens ?: "?"} " +
-                                                "out=${usage.cumulativeOutputTokens ?: "?"}"
+                                                    "out=${usage.cumulativeOutputTokens ?: "?"}"
                                         )
                                     }
 
