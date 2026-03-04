@@ -49,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun ChatScreen(
     onOpenProfiles: () -> Unit,
+    onOpenTaskAgent: () -> Unit,
     vm: ChatViewModel = viewModel()
 ) {
     val maxPromptChars = 1500
@@ -71,6 +72,12 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    TextButton(
+                        onClick = onOpenTaskAgent,
+                        enabled = !vm.historyLoading
+                    ) {
+                        Text("🤖")
+                    }
 
                     TextButton(
                         onClick = { memoryDialog = MemoryDialogType.ShortTerm },

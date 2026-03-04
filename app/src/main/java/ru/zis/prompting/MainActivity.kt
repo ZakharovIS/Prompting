@@ -18,10 +18,15 @@ class MainActivity : ComponentActivity() {
 
                 when (screen) {
                     AppScreen.Chat -> ChatScreen(
-                        onOpenProfiles = { screen = AppScreen.Profiles }
+                        onOpenProfiles = { screen = AppScreen.Profiles },
+                        onOpenTaskAgent = { screen = AppScreen.TaskAgent }
                     )
 
                     AppScreen.Profiles -> ProfileScreen(
+                        onBack = { screen = AppScreen.Chat }
+                    )
+
+                    AppScreen.TaskAgent -> TaskAgentScreen(
                         onBack = { screen = AppScreen.Chat }
                     )
                 }
@@ -32,5 +37,6 @@ class MainActivity : ComponentActivity() {
 
 private enum class AppScreen {
     Chat,
-    Profiles
+    Profiles,
+    TaskAgent
 }

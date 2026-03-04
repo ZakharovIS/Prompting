@@ -22,7 +22,8 @@ data class UiMessage(
     val role: String,              // "user" | "assistant"
     val text: String,
     val latencyMs: Long? = null,   // только для assistant
-    val usage: Usage? = null       // только для assistant
+    val usage: Usage? = null,      // только для assistant
+    val isHidden: Boolean = false
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
