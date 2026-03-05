@@ -10,6 +10,8 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import ru.zis.prompting.agent.InvariantItem
+import ru.zis.prompting.db.InvariantRepository
 import ru.zis.prompting.db.UserProfileRepository
 import ru.zis.prompting.profile.UserProfile
 
@@ -18,7 +20,11 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
     private val repository: UserProfileRepository =
         (application as App).userProfileRepository
 
+    private val invariantRepository: InvariantRepository =
+        (application as App).invariantRepository
+
     val profiles = mutableStateListOf<UserProfile>()
+    val invariants = mutableStateListOf<InvariantItem>()
 
     var activeProfileId by mutableStateOf<String?>(null)
         private set
@@ -38,9 +44,12 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val items = repository.getAll()
                 val active = repository.getActive()
+                val loadedInvariants = invariantRepository.getAll()
                 withContext(Dispatchers.Main) {
                     profiles.clear()
                     profiles.addAll(items)
+                    invariants.clear()
+                    invariants.addAll(loadedInvariants)
                     activeProfileId = active?.id
                     error = null
                     loading = false
@@ -49,6 +58,48 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
                 withContext(Dispatchers.Main) {
                     error = t.message ?: t.toString()
                     loading = false
+                }
+            }
+        }
+    }
+
+    fun addInvariant(rule: String) {
+        val normalized = rule.trim()
+        if (normalized.isBlank()) {
+            error = "Инвариант не может быть пустым"
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                invariantRepository.upsert(InvariantItem(rule = normalized))
+                val loaded = invariantRepository.getAll()
+                withContext(Dispatchers.Main) {
+                    invariants.clear()
+                    invariants.addAll(loaded)
+                    error = null
+                }
+            } catch (t: Throwable) {
+                withContext(Dispatchers.Main) {
+                    error = t.message ?: t.toString()
+                }
+            }
+        }
+    }
+
+    fun deleteInvariant(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                invariantRepository.delete(id)
+                val loaded = invariantRepository.getAll()
+                withContext(Dispatchers.Main) {
+                    invariants.clear()
+                    invariants.addAll(loaded)
+                    error = null
+                }
+            } catch (t: Throwable) {
+                withContext(Dispatchers.Main) {
+                    error = t.message ?: t.toString()
                 }
             }
         }

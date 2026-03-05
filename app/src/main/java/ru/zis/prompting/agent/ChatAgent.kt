@@ -1,6 +1,7 @@
 package ru.zis.prompting.agent
 
 import android.os.SystemClock
+import kotlinx.serialization.json.Json
 import ru.zis.prompting.network.RouterAiApi
 import ru.zis.prompting.data.InputMessage
 import ru.zis.prompting.data.ResponsesRequest
@@ -19,10 +20,12 @@ class ChatAgent(
     private var summary: String? = null
     private var summarizedMessagesCount: Int = 0
     private var activeProfile: UserProfile? = null
+    private val invariants = mutableListOf<InvariantItem>()
 
     private var cumulativeInputTokensSum: Int = 0
     private var cumulativeOutputTokensSum: Int = 0
     private var hasCumulativeTokens: Boolean = false
+    private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
         const val RECENT_MESSAGES_COUNT = 5
@@ -50,6 +53,11 @@ class ChatAgent(
 
     fun setProfile(profile: UserProfile?) {
         activeProfile = profile
+    }
+
+    fun setInvariants(items: List<InvariantItem>) {
+        invariants.clear()
+        invariants.addAll(items.filter { it.rule.isNotBlank() })
     }
 
     /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */
@@ -112,9 +120,10 @@ class ChatAgent(
         }
 
         val assistantText = resp.extractText().ifBlank { "(пустой ответ)" }
+        val validatedAssistantText = validateInvariants(assistantText, temperature)
 
         // 3) добавляем ответ ассистента в память
-        fullHistory += InputMessage(role = "assistant", content = assistantText)
+        fullHistory += InputMessage(role = "assistant", content = validatedAssistantText)
         updateWorkingMemory()
         maybeRefreshSummary(temperature)
 
@@ -132,7 +141,7 @@ class ChatAgent(
         )
 
         return AgentTurn(
-            text = assistantText,
+            text = validatedAssistantText,
             latencyMs = latencyMs,
             usage = mergedUsage
         )
@@ -160,6 +169,7 @@ class ChatAgent(
         val recentMessages = fullHistory.takeLast(maxHistoryMessages.coerceAtMost(RECENT_MESSAGES_COUNT))
 
         val profileSystem = buildProfileSystemMessage()
+        val invariantsSystem = buildInvariantsSystemMessage()
         val longTermSystem = buildLongTermSystemMessage()
         val workingSystem = buildWorkingSystemMessage()
 
@@ -169,7 +179,27 @@ class ChatAgent(
                 content = "Краткое summary предыдущего диалога:\n$it"
             )
         }
-        return listOfNotNull(profileSystem, longTermSystem, workingSystem, summaryMessage) + recentMessages
+        return listOfNotNull(profileSystem, invariantsSystem, longTermSystem, workingSystem, summaryMessage) + recentMessages
+    }
+
+    private fun buildInvariantsSystemMessage(): InputMessage? {
+        val active = invariants.filter { it.rule.isNotBlank() }
+        if (active.isEmpty()) return null
+
+        val content = buildString {
+            appendLine("=== ИНВАРИАНТЫ (НАРУШАТЬ ЗАПРЕЩЕНО) ===")
+            active.forEachIndexed { index, item ->
+                appendLine("${index + 1}. ${item.rule}")
+            }
+            appendLine()
+            appendLine("Если запрос пользователя конфликтует с любым инвариантом:")
+            appendLine("1) НЕ предлагай нарушающее решение,")
+            appendLine("2) явно укажи конфликтующий инвариант,")
+            appendLine("3) предложи безопасную альтернативу в рамках инвариантов.")
+            append("========================================")
+        }
+
+        return InputMessage(role = SUMMARY_ROLE, content = content)
     }
 
     private fun buildProfileSystemMessage(): InputMessage? {
@@ -328,6 +358,62 @@ class ChatAgent(
         addToCumulative(summaryResponse.usage)
 
         return summaryResponse.extractText().ifBlank { "Краткое summary недоступно." }
+    }
+
+    private suspend fun validateInvariants(candidate: String, temperature: Float?): String {
+        val active = invariants.filter { it.rule.isNotBlank() }
+        if (active.isEmpty()) return candidate
+
+        val rulesText = active.mapIndexed { index, item -> "${index + 1}. ${item.rule}" }
+            .joinToString(separator = "\n")
+
+        val validatorPrompt = """
+            Ты валидатор ответов ассистента.
+            Проверь, нарушает ли ответ хотя бы один инвариант.
+
+            Инварианты:
+            $rulesText
+
+            Ответ ассистента:
+            $candidate
+
+            Верни ТОЛЬКО JSON без markdown:
+            {"violated": true|false, "rule": "текст инварианта или null", "explanation": "краткое объяснение"}
+        """.trimIndent()
+
+        val validationResponse = api.createResponse(
+            ResponsesRequest(
+                model = model,
+                input = listOf(InputMessage(role = "user", content = validatorPrompt)),
+                stream = false,
+                temperature = temperature
+            )
+        )
+
+        if (validationResponse.error != null) {
+            throw IllegalStateException(validationResponse.error.message ?: "RouterAI invariant validation error")
+        }
+
+        addToCumulative(validationResponse.usage)
+
+        val rawText = validationResponse.extractText().trim()
+        val parsed = runCatching {
+            json.decodeFromString<InvariantValidationResult>(rawText)
+        }.getOrElse {
+            return candidate
+        }
+
+        if (!parsed.violated) return candidate
+
+        val rule = parsed.rule?.takeIf { it.isNotBlank() } ?: "(инвариант не распознан)"
+        val explanation = parsed.explanation?.takeIf { it.isNotBlank() }
+            ?: "Запрос конфликтует с обязательными инвариантами."
+
+        return buildString {
+            appendLine("Не могу предложить этот вариант: он нарушает инвариант.")
+            appendLine("Нарушаемый инвариант: $rule")
+            append(explanation)
+        }
     }
 
     private fun addToCumulative(usage: Usage?) {

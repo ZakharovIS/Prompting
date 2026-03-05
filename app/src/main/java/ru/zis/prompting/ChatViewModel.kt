@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import ru.zis.prompting.agent.ChatAgent
 import ru.zis.prompting.data.Usage
 import ru.zis.prompting.db.ChatRepository
+import ru.zis.prompting.db.InvariantRepository
 import ru.zis.prompting.db.UserProfileRepository
 import ru.zis.prompting.network.RouterAiApiFactory
 import ru.zis.prompting.profile.UserProfile
@@ -39,7 +40,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var historyLoading by mutableStateOf(true)
         private set
 
-    val model = "deepseek/deepseek-v3.2"
+    val model = "openai/gpt-5.2"
 
     private val api = RouterAiApiFactory.create()
     private val agent = ChatAgent(api = api, model = model)
@@ -49,6 +50,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val profileRepository: UserProfileRepository =
         (application as App).userProfileRepository
+
+    private val invariantRepository: InvariantRepository =
+        (application as App).invariantRepository
 
     var activeProfileName by mutableStateOf<String?>(null)
         private set
@@ -64,6 +68,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val state = repository.load()
             val longTermMemory = repository.loadLongTermMemory()
             val activeProfile = profileRepository.getActive()
+            val invariants = invariantRepository.getAll()
             withContext(Dispatchers.Main) {
                 if (state != null) {
                     messages.addAll(state.uiMessages)
@@ -75,6 +80,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     agent.restoreMemoryLayers(savedWorkingMemory = null, savedLongTermMemory = longTermMemory)
                 }
                 applyActiveProfile(activeProfile)
+                agent.setInvariants(invariants)
                 historyLoading = false
             }
         }
@@ -204,8 +210,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val activeProfile = profileRepository.getActive()
+                val invariants = invariantRepository.getAll()
                 withContext(Dispatchers.Main) {
                     applyActiveProfile(activeProfile)
+                    agent.setInvariants(invariants)
                 }
 
                 val turn = agent.send(userText = text, temperature = temperature)

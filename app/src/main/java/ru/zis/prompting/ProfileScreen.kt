@@ -1,6 +1,7 @@
 package ru.zis.prompting
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,6 +50,7 @@ fun ProfileScreen(
 ) {
     var editingProfile by remember { mutableStateOf<UserProfile?>(null) }
     var createMode by remember { mutableStateOf(false) }
+    var invariantDraft by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -88,52 +90,129 @@ fun ProfileScreen(
                 )
             }
 
-            if (vm.loading) {
-                Text("Загрузка профилей...")
-            } else if (vm.profiles.isEmpty()) {
-                Text("Профилей пока нет. Нажмите '+ Профиль'.")
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(vm.profiles, key = { it.id }) { profile ->
-                        val isActive = vm.activeProfileId == profile.id
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isActive) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                }
-                            )
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = if (isActive) "${profile.name} (активный)" else profile.name,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                if (profile.style.isNotBlank()) {
-                                    Spacer(Modifier.height(6.dp))
-                                    Text("Стиль: ${profile.style}", style = MaterialTheme.typography.bodySmall)
-                                }
-                                if (profile.constraints.isNotBlank()) {
-                                    Spacer(Modifier.height(4.dp))
-                                    Text("Ограничения: ${profile.constraints}", style = MaterialTheme.typography.bodySmall)
-                                }
-                                if (profile.context.isNotBlank()) {
-                                    Spacer(Modifier.height(4.dp))
-                                    Text("Контекст: ${profile.context}", style = MaterialTheme.typography.bodySmall)
-                                }
+            Text(
+                text = "Профили",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
 
-                                Spacer(Modifier.height(8.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    if (!isActive) {
-                                        TextButton(onClick = { vm.setActive(profile.id) }) {
-                                            Text("Сделать активным")
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                if (vm.loading) {
+                    Text("Загрузка профилей...")
+                } else if (vm.profiles.isEmpty()) {
+                    Text("Профилей пока нет. Нажмите '+ Профиль'.")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(vm.profiles, key = { it.id }) { profile ->
+                            val isActive = vm.activeProfileId == profile.id
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isActive) {
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    }
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = if (isActive) "${profile.name} (активный)" else profile.name,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (profile.style.isNotBlank()) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text("Стиль: ${profile.style}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (profile.constraints.isNotBlank()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text("Ограничения: ${profile.constraints}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    if (profile.context.isNotBlank()) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Text("Контекст: ${profile.context}", style = MaterialTheme.typography.bodySmall)
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        if (!isActive) {
+                                            TextButton(onClick = { vm.setActive(profile.id) }) {
+                                                Text("Сделать активным")
+                                            }
+                                        }
+                                        TextButton(onClick = { editingProfile = profile }) {
+                                            Text("Редактировать")
+                                        }
+                                        TextButton(onClick = { vm.deleteProfile(profile.id) }) {
+                                            Text("Удалить")
                                         }
                                     }
-                                    TextButton(onClick = { editingProfile = profile }) {
-                                        Text("Редактировать")
-                                    }
-                                    TextButton(onClick = { vm.deleteProfile(profile.id) }) {
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                text = "Инварианты ассистента (нарушать нельзя)",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            OutlinedTextField(
+                value = invariantDraft,
+                onValueChange = { invariantDraft = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Новый инвариант") },
+                placeholder = { Text("Например: Не предлагать решения вне Kotlin + Compose") },
+                minLines = 2
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        vm.addInvariant(invariantDraft)
+                        invariantDraft = ""
+                    }
+                ) {
+                    Text("Добавить инвариант")
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                if (vm.invariants.isEmpty()) {
+                    Text(
+                        text = "Инварианты пока не добавлены.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(vm.invariants, key = { it.id }) { item ->
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(item.rule, style = MaterialTheme.typography.bodyMedium)
+                                    Spacer(Modifier.height(6.dp))
+                                    TextButton(onClick = { vm.deleteInvariant(item.id) }) {
                                         Text("Удалить")
                                     }
                                 }
