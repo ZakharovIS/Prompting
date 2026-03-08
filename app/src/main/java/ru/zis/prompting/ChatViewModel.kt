@@ -57,6 +57,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var activeProfileName by mutableStateOf<String?>(null)
         private set
 
+    var taskProfileLabel by mutableStateOf<String?>(null)
+        private set
+
+    var taskStageLabel by mutableStateOf<String?>(null)
+        private set
+
+    var taskProfileCode by mutableStateOf<String?>(null)
+        private set
+
+    var taskStageCode by mutableStateOf<String?>(null)
+        private set
+
     init {
         loadHistory()
     }
@@ -74,10 +86,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     messages.addAll(state.uiMessages)
                     agent.restoreHistory(state.agentHistory, state.summary)
                     agent.restoreMemoryLayers(state.workingMemory, longTermMemory)
+                    refreshTaskLifecycleState()
                     val (savedInput, savedOutput) = extractSavedCumulativeTokens(state.uiMessages)
                     agent.restoreCumulativeTokens(savedInput, savedOutput)
                 } else {
                     agent.restoreMemoryLayers(savedWorkingMemory = null, savedLongTermMemory = longTermMemory)
+                    refreshTaskLifecycleState()
                 }
                 applyActiveProfile(activeProfile)
                 agent.setInvariants(invariants)
@@ -181,9 +195,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun clearChat() {
         agent.clear()
         messages.clear()
+        refreshTaskLifecycleState()
         error = null
         loading = false
         viewModelScope.launch(Dispatchers.IO) { repository.clear() }
+    }
+
+    fun resetTaskState() {
+        agent.resetTaskLifecycle()
+        refreshTaskLifecycleState()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.save(
+                uiMessages = messages.toList(),
+                agentHistory = agent.snapshotHistory(),
+                summary = agent.snapshotSummary(),
+                workingMemory = agent.snapshotWorkingMemory()
+            )
+        }
     }
 
     fun send() {
@@ -225,6 +253,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         latencyMs = turn.latencyMs,
                         usage = turn.usage
                     )
+                    refreshTaskLifecycleState()
                     loading = false
                 }
 
@@ -243,5 +272,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    private fun refreshTaskLifecycleState() {
+        val snapshot = agent.snapshotTaskLifecycle()
+        taskProfileLabel = snapshot.profileLabel
+        taskStageLabel = snapshot.stageLabel
+        taskProfileCode = snapshot.profileType?.name
+        taskStageCode = snapshot.currentStage?.name
     }
 }

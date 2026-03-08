@@ -115,6 +115,19 @@ fun ChatScreen(
                 color = if (vm.activeProfileName == null) MaterialTheme.colorScheme.error else Color.Unspecified
             )
 
+            Text(
+                text = "Профиль задачи: ${vm.taskProfileLabel ?: "не определён"}" +
+                        (vm.taskProfileCode?.let { " ($it)" } ?: ""),
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Text(
+                text = "Стадия: ${vm.taskStageLabel ?: "не определена"}" +
+                        (vm.taskStageCode?.let { " ($it)" } ?: ""),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (vm.taskStageCode == null) MaterialTheme.colorScheme.error else Color.Unspecified
+            )
+
             /*Text(
                 text = "Температура: ${String.format(Locale.US, "%.2f", vm.temperature)}",
                 style = MaterialTheme.typography.bodyMedium
@@ -189,6 +202,13 @@ fun ChatScreen(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text("Повторить запрос")
+                }
+
+                TextButton(
+                    onClick = { vm.resetTaskState() },
+                    enabled = !vm.loading && !vm.historyLoading
+                ) {
+                    Text("Сброс стадии")
                 }
             }
 

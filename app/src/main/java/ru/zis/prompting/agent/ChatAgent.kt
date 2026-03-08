@@ -11,7 +11,8 @@ import ru.zis.prompting.profile.UserProfile
 class ChatAgent(
     private val api: RouterAiApi,
     private val model: String = "openai/gpt-5.2",
-    private val maxHistoryMessages: Int = 40
+    private val maxHistoryMessages: Int = 40,
+    private val nowMs: () -> Long = { SystemClock.elapsedRealtime() }
 ) {
     private val fullHistory = mutableListOf<InputMessage>()
     private var workingMemory: WorkingMemory = WorkingMemory()
@@ -50,6 +51,24 @@ class ChatAgent(
     fun snapshotLongTermMemory(): List<LongTermMemoryItem> = longTermMemory.toList()
 
     fun snapshotSummary(): String? = summary
+
+    fun snapshotTaskLifecycle(): TaskLifecycleSnapshot {
+        val profile = TaskProfiles.parseProfile(workingMemory.taskProfileType)
+        val stage = TaskProfiles.parseStage(workingMemory.currentStage)
+        return TaskLifecycleSnapshot(
+            profileType = profile,
+            currentStage = stage,
+            profileLabel = profile?.let { TaskProfiles.profileLabel(it) },
+            stageLabel = stage?.let { TaskProfiles.stageLabel(it) }
+        )
+    }
+
+    fun resetTaskLifecycle() {
+        workingMemory = workingMemory.copy(
+            taskProfileType = null,
+            currentStage = null
+        )
+    }
 
     fun setProfile(profile: UserProfile?) {
         activeProfile = profile
@@ -99,7 +118,27 @@ class ChatAgent(
         captureLongTermMemoryFromUser(userText)
         maybeRefreshSummary(temperature)
 
-        val start = SystemClock.elapsedRealtime()
+        ensureTaskLifecycle(userText = userText, temperature = temperature)
+
+        val blockedByState = buildLifecycleViolationMessageIfAny(userText)
+        if (blockedByState != null) {
+            fullHistory += InputMessage(role = "assistant", content = blockedByState)
+            updateWorkingMemory()
+            maybeRefreshSummary(temperature)
+
+            return AgentTurn(
+                text = blockedByState,
+                latencyMs = 0,
+                usage = Usage(
+                    currentRequestTokens = null,
+                    modelResponseTokens = null,
+                    cumulativeInputTokens = if (hasCumulativeTokens) cumulativeInputTokensSum else null,
+                    cumulativeOutputTokens = if (hasCumulativeTokens) cumulativeOutputTokensSum else null
+                )
+            )
+        }
+
+        val start = nowMs()
 
         // 2) запрос с управляемым контекстом: summary + последние N сообщений
         val resp = api.createResponse(
@@ -111,7 +150,7 @@ class ChatAgent(
             )
         )
 
-        val latencyMs = SystemClock.elapsedRealtime() - start
+        val latencyMs = nowMs() - start
 
         if (resp.error != null) {
             // если ошибка — откатывать history или оставлять? обычно лучше оставлять user-turn,
@@ -169,6 +208,7 @@ class ChatAgent(
         val recentMessages = fullHistory.takeLast(maxHistoryMessages.coerceAtMost(RECENT_MESSAGES_COUNT))
 
         val profileSystem = buildProfileSystemMessage()
+        val taskLifecycleSystem = buildTaskLifecycleSystemMessage()
         val invariantsSystem = buildInvariantsSystemMessage()
         val longTermSystem = buildLongTermSystemMessage()
         val workingSystem = buildWorkingSystemMessage()
@@ -179,7 +219,38 @@ class ChatAgent(
                 content = "Краткое summary предыдущего диалога:\n$it"
             )
         }
-        return listOfNotNull(profileSystem, invariantsSystem, longTermSystem, workingSystem, summaryMessage) + recentMessages
+        return listOfNotNull(profileSystem, taskLifecycleSystem, invariantsSystem, longTermSystem, workingSystem, summaryMessage) + recentMessages
+    }
+
+    private fun buildTaskLifecycleSystemMessage(): InputMessage? {
+        val profileType = TaskProfiles.parseProfile(workingMemory.taskProfileType) ?: return null
+        val currentStage = TaskProfiles.parseStage(workingMemory.currentStage) ?: return null
+        if (profileType == TaskProfileType.FREE) {
+            return InputMessage(
+                role = SUMMARY_ROLE,
+                content = "=== СОСТОЯНИЕ ЗАДАЧИ ===\nПрофиль: Свободный режим\nОграничения стадий не применяются."
+            )
+        }
+
+        val allowedNext = TaskProfiles.allowedNext(profileType, currentStage)
+
+        val allowedText = if (allowedNext.isEmpty()) {
+            "Дальнейшие переходы не разрешены (задача завершена)."
+        } else {
+            allowedNext.joinToString { stage -> "${stage.name} (${TaskProfiles.stageLabel(stage)})" }
+        }
+
+        val content = buildString {
+            appendLine("=== СОСТОЯНИЕ ЗАДАЧИ ===")
+            appendLine("Профиль: ${TaskProfiles.profileLabel(profileType)} (${profileType.name})")
+            appendLine("Текущая стадия: ${currentStage.name} (${TaskProfiles.stageLabel(currentStage)})")
+            appendLine("Разрешённые следующие стадии: $allowedText")
+            appendLine("Переход в следующую стадию допускается ТОЛЬКО по явной команде пользователя.")
+            appendLine("Нельзя перепрыгивать стадии и нельзя выполнять действия из будущих стадий.")
+            append("========================")
+        }
+
+        return InputMessage(role = SUMMARY_ROLE, content = content)
     }
 
     private fun buildInvariantsSystemMessage(): InputMessage? {
@@ -268,6 +339,9 @@ class ChatAgent(
     }
 
     private fun updateWorkingMemory() {
+        val preservedProfile = workingMemory.taskProfileType
+        val preservedStage = workingMemory.currentStage
+
         val recentUsers = fullHistory
             .asSequence()
             .filter { it.role == "user" }
@@ -276,7 +350,10 @@ class ChatAgent(
             .toList()
 
         if (recentUsers.isEmpty()) {
-            workingMemory = WorkingMemory()
+            workingMemory = WorkingMemory(
+                taskProfileType = preservedProfile,
+                currentStage = preservedStage
+            )
             return
         }
 
@@ -295,8 +372,155 @@ class ChatAgent(
         workingMemory = WorkingMemory(
             goal = goal,
             keyFacts = keyFacts,
-            openQuestions = openQuestions
+            openQuestions = openQuestions,
+            taskProfileType = preservedProfile,
+            currentStage = preservedStage
         )
+    }
+
+    private suspend fun ensureTaskLifecycle(userText: String, temperature: Float?) {
+        val currentProfile = TaskProfiles.parseProfile(workingMemory.taskProfileType)
+        if (currentProfile == null) {
+            val detected = classifyTaskProfile(userText, temperature)
+            val initial = if (detected == TaskProfileType.FREE) TaskStage.FREE else TaskProfiles.initialStage(detected)
+            workingMemory = workingMemory.copy(
+                taskProfileType = detected.name,
+                currentStage = initial.name
+            )
+            return
+        }
+
+        if (currentProfile == TaskProfileType.FREE) {
+            if (TaskProfiles.parseStage(workingMemory.currentStage) == null) {
+                workingMemory = workingMemory.copy(currentStage = TaskStage.FREE.name)
+            }
+            return
+        }
+
+        val currentStage = TaskProfiles.parseStage(workingMemory.currentStage)
+            ?: TaskProfiles.initialStage(currentProfile)
+
+        val transitionIntent = detectTransitionIntent(currentProfile, userText, temperature)
+        if (!transitionIntent.transitionRequested) {
+            if (TaskProfiles.parseStage(workingMemory.currentStage) == null) {
+                workingMemory = workingMemory.copy(currentStage = currentStage.name)
+            }
+            return
+        }
+
+        val target = TaskProfiles.parseStage(transitionIntent.targetStage)
+        if (target == null) return
+
+        if (TaskProfiles.canTransition(currentProfile, currentStage, target)) {
+            workingMemory = workingMemory.copy(currentStage = target.name)
+        }
+    }
+
+    private fun buildLifecycleViolationMessageIfAny(userText: String): String? {
+        val profileType = TaskProfiles.parseProfile(workingMemory.taskProfileType) ?: return null
+        if (profileType == TaskProfileType.FREE) return null
+
+        val currentStage = TaskProfiles.parseStage(workingMemory.currentStage)
+            ?: TaskProfiles.initialStage(profileType)
+
+        val requestedStage = TaskProfiles.detectRequestedWorkStage(profileType, userText) ?: return null
+        if (requestedStage == currentStage) return null
+
+        if (TaskProfiles.canTransition(profileType, currentStage, requestedStage)) {
+            return null
+        }
+
+        val allowedNext = TaskProfiles.allowedNext(profileType, currentStage)
+            .joinToString { "${it.name} (${TaskProfiles.stageLabel(it)})" }
+            .ifBlank { "нет" }
+
+        return buildString {
+            appendLine("Сейчас нельзя перейти к стадии ${requestedStage.name} (${TaskProfiles.stageLabel(requestedStage)}).")
+            appendLine("Текущая стадия: ${currentStage.name} (${TaskProfiles.stageLabel(currentStage)}).")
+            appendLine("Разрешённые переходы: $allowedNext.")
+            append("Сделайте явный переход только в разрешённую следующую стадию.")
+        }
+    }
+
+    private suspend fun classifyTaskProfile(userText: String, temperature: Float?): TaskProfileType {
+        val prompt = """
+            Классифицируй запрос пользователя по типу задачи.
+            Варианты:
+            - DEV: задача на разработку/код/рефакторинг/исправления
+            - ANALYTICS: задача на анализ/исследование/сравнение/выводы
+            - FREE: прочее
+
+            Сообщение пользователя:
+            $userText
+
+            Верни ТОЛЬКО JSON без markdown:
+            {"profile": "DEV"|"ANALYTICS"|"FREE"}
+        """.trimIndent()
+
+        val response = api.createResponse(
+            ResponsesRequest(
+                model = model,
+                input = listOf(InputMessage(role = "user", content = prompt)),
+                stream = false,
+                temperature = temperature
+            )
+        )
+
+        if (response.error != null) {
+            throw IllegalStateException(response.error.message ?: "RouterAI task profile classification error")
+        }
+
+        addToCumulative(response.usage)
+
+        val parsed = runCatching {
+            json.decodeFromString<TaskProfileClassificationResult>(response.extractText().trim())
+        }.getOrNull()
+
+        return TaskProfiles.parseProfile(parsed?.profile) ?: TaskProfileType.FREE
+    }
+
+    private suspend fun detectTransitionIntent(
+        profileType: TaskProfileType,
+        userText: String,
+        temperature: Float?
+    ): TransitionIntentResult {
+        val profile = TaskProfiles.of(profileType)
+        val stages = profile.orderedStages.joinToString { it.name }
+        val prompt = """
+            Определи, просит ли пользователь ЯВНО перейти в другую стадию задачи.
+            Профиль: ${profileType.name}
+            Допустимые стадии: $stages
+
+            Сообщение пользователя:
+            $userText
+
+            Если явной команды перехода нет, верни transitionRequested=false.
+            Если есть, верни целевую стадию из списка.
+
+            Верни ТОЛЬКО JSON без markdown:
+            {"transitionRequested": true|false, "targetStage": "STAGE_NAME"|null}
+        """.trimIndent()
+
+        val response = api.createResponse(
+            ResponsesRequest(
+                model = model,
+                input = listOf(InputMessage(role = "user", content = prompt)),
+                stream = false,
+                temperature = temperature
+            )
+        )
+
+        if (response.error != null) {
+            throw IllegalStateException(response.error.message ?: "RouterAI transition intent detection error")
+        }
+
+        addToCumulative(response.usage)
+
+        return runCatching {
+            json.decodeFromString<TransitionIntentResult>(response.extractText().trim())
+        }.getOrElse {
+            TransitionIntentResult()
+        }
     }
 
     private fun captureLongTermMemoryFromUser(userText: String) {
@@ -433,4 +657,11 @@ data class AgentTurn(
     val text: String,
     val latencyMs: Long,
     val usage: Usage?
+)
+
+data class TaskLifecycleSnapshot(
+    val profileType: TaskProfileType?,
+    val currentStage: TaskStage?,
+    val profileLabel: String?,
+    val stageLabel: String?
 )
