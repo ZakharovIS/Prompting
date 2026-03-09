@@ -49,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun ChatScreen(
     onOpenProfiles: () -> Unit,
+    onOpenMcp: () -> Unit,
     vm: ChatViewModel = viewModel()
 ) {
     val maxPromptChars = 1500
@@ -63,11 +64,19 @@ fun ChatScreen(
             TopAppBar(
                 title = { Text("") },
                 navigationIcon = {
-                    TextButton(
-                        onClick = onOpenProfiles,
-                        enabled = !vm.historyLoading
-                    ) {
-                        Text("👤")
+                    Row {
+                        TextButton(
+                            onClick = onOpenProfiles,
+                            enabled = !vm.historyLoading
+                        ) {
+                            Text("👤")
+                        }
+                        TextButton(
+                            onClick = onOpenMcp,
+                            enabled = !vm.historyLoading
+                        ) {
+                            Text("🛠 MCP")
+                        }
                     }
                 },
                 actions = {

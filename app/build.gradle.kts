@@ -82,6 +82,10 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.logging.interceptor)
 
+    // MCP client
+    implementation(libs.mcp.kotlin.sdk.client)
+    implementation(libs.ktor.client.okhttp)
+
     // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
