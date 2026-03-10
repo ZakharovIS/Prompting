@@ -32,7 +32,11 @@ android {
         val apiKey = gradleLocalProperties(rootDir, providers)
             .getProperty("ROUTERAI_API_KEY") ?: ""
 
+        val geoapifyApiKey = gradleLocalProperties(rootDir, providers)
+            .getProperty("GEOAPIFY_API_KEY") ?: ""
+
         buildConfigField("String", "ROUTERAI_API_KEY", "\"$apiKey\"")
+        buildConfigField("String", "GEOAPIFY_API_KEY", "\"$geoapifyApiKey\"")
     }
 
     buildTypes {

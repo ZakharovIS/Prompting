@@ -1,18 +1,22 @@
 package ru.zis.prompting.agent
 
 import android.os.SystemClock
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import ru.zis.prompting.network.RouterAiApi
 import ru.zis.prompting.data.InputMessage
 import ru.zis.prompting.data.ResponsesRequest
 import ru.zis.prompting.data.Usage
+import ru.zis.prompting.mcp.McpRegistry
 import ru.zis.prompting.profile.UserProfile
 
 class ChatAgent(
     private val api: RouterAiApi,
     private val model: String = "openai/gpt-5.2",
     private val maxHistoryMessages: Int = 40,
-    private val nowMs: () -> Long = { SystemClock.elapsedRealtime() }
+    private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
+    private val mcpRegistry: McpRegistry = McpRegistry.default()
 ) {
     private val fullHistory = mutableListOf<InputMessage>()
     private var workingMemory: WorkingMemory = WorkingMemory()
@@ -32,6 +36,7 @@ class ChatAgent(
         const val RECENT_MESSAGES_COUNT = 5
         const val SUMMARY_BATCH_SIZE = 10
         private const val SUMMARY_ROLE = "system"
+        private const val MCP_TOOL_CALL_MAX_LOOPS = 2
     }
 
     fun clear() {
@@ -139,26 +144,8 @@ class ChatAgent(
         }
 
         val start = nowMs()
-
-        // 2) запрос с управляемым контекстом: summary + последние N сообщений
-        val resp = api.createResponse(
-            ResponsesRequest(
-                model = model,
-                input = buildContextMessages(),
-                stream = false,
-                temperature = temperature
-            )
-        )
-
+        val assistantText = runToolAwareGeneration(temperature)
         val latencyMs = nowMs() - start
-
-        if (resp.error != null) {
-            // если ошибка — откатывать history или оставлять? обычно лучше оставлять user-turn,
-            // чтобы пользователь мог повторить/исправить. Здесь оставляем.
-            throw IllegalStateException(resp.error.message ?: "RouterAI error")
-        }
-
-        val assistantText = resp.extractText().ifBlank { "(пустой ответ)" }
         val validatedAssistantText = validateInvariants(assistantText, temperature)
 
         // 3) добавляем ответ ассистента в память
@@ -166,15 +153,9 @@ class ChatAgent(
         updateWorkingMemory()
         maybeRefreshSummary(temperature)
 
-        val apiUsage = resp.usage
-        val currentRequestTokens = apiUsage?.inputTokens
-        val modelResponseTokens = apiUsage?.outputTokens
-
-        addToCumulative(apiUsage)
-
-        val mergedUsage = (apiUsage ?: Usage()).copy(
-            currentRequestTokens = currentRequestTokens,
-            modelResponseTokens = modelResponseTokens,
+        val mergedUsage = Usage(
+            currentRequestTokens = null,
+            modelResponseTokens = null,
             cumulativeInputTokens = if (hasCumulativeTokens) cumulativeInputTokensSum else null,
             cumulativeOutputTokens = if (hasCumulativeTokens) cumulativeOutputTokensSum else null
         )
@@ -204,6 +185,54 @@ class ChatAgent(
         summarizedMessagesCount = oldMessagesCount
     }
 
+    private suspend fun runToolAwareGeneration(temperature: Float?): String {
+        repeat(MCP_TOOL_CALL_MAX_LOOPS) {
+            val response = requestModel(temperature)
+            val text = response.extractText().ifBlank { "(пустой ответ)" }
+            val call = parseToolCall(text)
+            if (call == null) return text
+
+            val toolResult = mcpRegistry.callTool(call.tool, call.arguments)
+            val toolPayloadText = json.encodeToString(McpToolEnvelope.serializer(), McpToolEnvelope(
+                tool = call.tool,
+                isError = toolResult.isError,
+                content = toolResult.content,
+                payload = toolResult.payload
+            ))
+
+            fullHistory += InputMessage(role = "system", content = "TOOL_RESULT: $toolPayloadText")
+        }
+
+        val fallback = requestModel(temperature).extractText()
+        return fallback.ifBlank { "(пустой ответ)" }
+    }
+
+    private suspend fun requestModel(temperature: Float?) = api.createResponse(
+        ResponsesRequest(
+            model = model,
+            input = buildContextMessages(),
+            stream = false,
+            temperature = temperature
+        )
+    ).also { resp ->
+        if (resp.error != null) {
+            throw IllegalStateException(resp.error.message ?: "RouterAI error")
+        }
+        addToCumulative(resp.usage)
+    }
+
+    private fun parseToolCall(raw: String): McpToolCallPayload? {
+        val trimmed = raw.trim()
+        if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) return null
+
+        val parsed = runCatching {
+            json.decodeFromString<McpToolCallPayload>(trimmed)
+        }.getOrNull() ?: return null
+
+        if (parsed.tool.isBlank()) return null
+        return parsed
+    }
+
     private fun buildContextMessages(): List<InputMessage> {
         val recentMessages = fullHistory.takeLast(maxHistoryMessages.coerceAtMost(RECENT_MESSAGES_COUNT))
 
@@ -212,6 +241,7 @@ class ChatAgent(
         val invariantsSystem = buildInvariantsSystemMessage()
         val longTermSystem = buildLongTermSystemMessage()
         val workingSystem = buildWorkingSystemMessage()
+        val mcpSystem = buildMcpToolsSystemMessage()
 
         val summaryMessage = summary?.takeIf { it.isNotBlank() }?.let {
             InputMessage(
@@ -219,7 +249,28 @@ class ChatAgent(
                 content = "Краткое summary предыдущего диалога:\n$it"
             )
         }
-        return listOfNotNull(profileSystem, taskLifecycleSystem, invariantsSystem, longTermSystem, workingSystem, summaryMessage) + recentMessages
+        return listOfNotNull(profileSystem, taskLifecycleSystem, invariantsSystem, longTermSystem, workingSystem, mcpSystem, summaryMessage) + recentMessages
+    }
+
+    private fun buildMcpToolsSystemMessage(): InputMessage {
+        val tools = mcpRegistry.listTools()
+        val toolsText = tools.joinToString(separator = "\n") { tool ->
+            val schemaText = json.encodeToString(JsonObject.serializer(), tool.inputSchema)
+            "- ${tool.name}: ${tool.description}\n  inputSchema=$schemaText"
+        }
+
+        val content = buildString {
+            appendLine("=== MCP ИНСТРУМЕНТЫ ===")
+            appendLine("Доступные инструменты:")
+            appendLine(toolsText)
+            appendLine()
+            appendLine("Если нужен инструмент — верни ТОЛЬКО JSON без markdown:")
+            appendLine("{\"tool\":\"имя_инструмента\",\"arguments\":{...}}")
+            appendLine("После получения TOOL_RESULT сформируй финальный ответ обычным текстом.")
+            append("=======================")
+        }
+
+        return InputMessage(role = SUMMARY_ROLE, content = content)
     }
 
     private fun buildTaskLifecycleSystemMessage(): InputMessage? {
@@ -664,4 +715,18 @@ data class TaskLifecycleSnapshot(
     val currentStage: TaskStage?,
     val profileLabel: String?,
     val stageLabel: String?
+)
+
+@Serializable
+private data class McpToolCallPayload(
+    val tool: String = "",
+    val arguments: JsonObject = JsonObject(emptyMap())
+)
+
+@Serializable
+private data class McpToolEnvelope(
+    val tool: String,
+    val isError: Boolean,
+    val content: String,
+    val payload: JsonObject = JsonObject(emptyMap())
 )
