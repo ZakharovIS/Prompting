@@ -21,6 +21,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -50,10 +52,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun ChatScreen(
     onOpenProfiles: () -> Unit,
     onOpenMcp: () -> Unit,
+    onOpenWeatherHistory: () -> Unit,
     vm: ChatViewModel = viewModel()
 ) {
     val maxPromptChars = 1500
     var memoryDialog by remember { mutableStateOf<MemoryDialogType?>(null) }
+    var topBarMenuExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         vm.refreshActiveProfile()
@@ -62,45 +66,69 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("") },
-                navigationIcon = {
-                    Row {
-                        TextButton(
-                            onClick = onOpenProfiles,
-                            enabled = !vm.historyLoading
-                        ) {
-                            Text("👤")
-                        }
-                        TextButton(
-                            onClick = onOpenMcp,
-                            enabled = !vm.historyLoading
-                        ) {
-                            Text("🛠 MCP")
-                        }
-                    }
-                },
+                title = { Text("Чат") },
                 actions = {
+                    IconButton(
+                        onClick = { topBarMenuExpanded = true },
+                        enabled = !vm.historyLoading
+                    ) {
+                        Text("⋮")
+                    }
 
-                    TextButton(
-                        onClick = { memoryDialog = MemoryDialogType.ShortTerm },
-                        enabled = !vm.historyLoading
+                    DropdownMenu(
+                        expanded = topBarMenuExpanded,
+                        onDismissRequest = { topBarMenuExpanded = false }
                     ) {
-                        Text("💬")
-                    }
-                    TextButton(
-                        onClick = { memoryDialog = MemoryDialogType.Working },
-                        enabled = !vm.historyLoading
-                    ) {
-                        Text("🔧")
-                    }
-                    TextButton(
-                        onClick = { memoryDialog = MemoryDialogType.LongTerm },
-                        enabled = !vm.historyLoading
-                    ) {
-                        Text("🧠")
-                    }
-                    TextButton(onClick = { vm.clearChat() }, enabled = !vm.loading) {
-                        Text("Очистить")
+                        DropdownMenuItem(
+                            text = { Text("Профили") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                onOpenProfiles()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("MCP") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                onOpenMcp()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("История погоды") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                onOpenWeatherHistory()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Память: краткосрочная") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                memoryDialog = MemoryDialogType.ShortTerm
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Память: рабочая") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                memoryDialog = MemoryDialogType.Working
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Память: долговременная") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                memoryDialog = MemoryDialogType.LongTerm
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Очистить чат") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                vm.clearChat()
+                            },
+                            enabled = !vm.loading
+                        )
                     }
                 }
             )

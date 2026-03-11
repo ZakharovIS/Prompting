@@ -1,6 +1,9 @@
 package ru.zis.prompting.mcp
 
+import android.content.Context
 import kotlinx.serialization.json.JsonObject
+import ru.zis.prompting.db.WeatherRepository
+import ru.zis.prompting.weather.WeatherScheduler
 
 class McpRegistry(
     tools: List<McpTool>
@@ -20,10 +23,23 @@ class McpRegistry(
     }
 
     companion object {
-        fun default(): McpRegistry = McpRegistry(
-            tools = listOf(
+        fun default(
+            context: Context? = null,
+            weatherRepository: WeatherRepository? = null
+        ): McpRegistry {
+            val tools = mutableListOf<McpTool>(
                 GeocodingMcpTool()
             )
-        )
+
+            if (context != null && weatherRepository != null) {
+                tools += WeatherMcpTool(weatherRepository = weatherRepository)
+                tools += WeatherSchedulerMcpTool(
+                    weatherRepository = weatherRepository,
+                    scheduler = WeatherScheduler(context.applicationContext)
+                )
+            }
+
+            return McpRegistry(tools)
+        }
     }
 }

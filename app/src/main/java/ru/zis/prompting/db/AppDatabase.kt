@@ -12,9 +12,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ChatSessionEntity::class,
         LongTermMemoryEntity::class,
         UserProfileEntity::class,
-        InvariantEntity::class
+        InvariantEntity::class,
+        WeatherRecordEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,6 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun longTermMemoryDao(): LongTermMemoryDao
     abstract fun userProfileDao(): UserProfileDao
     abstract fun invariantDao(): InvariantDao
+    abstract fun weatherRecordDao(): WeatherRecordDao
 
     companion object {
         @Volatile
@@ -84,6 +86,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `weather_records` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `location` TEXT NOT NULL,
+                        `timestampEpochMs` INTEGER NOT NULL,
+                        `temperatureC` REAL,
+                        `conditions` TEXT,
+                        `summary` TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -95,6 +114,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_2_3)
                     .addMigrations(MIGRATION_3_4)
                     .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_5_6)
                     .build()
                     .also { INSTANCE = it }
             }

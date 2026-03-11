@@ -4,6 +4,8 @@ import android.os.SystemClock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import ru.zis.prompting.network.RouterAiApi
 import ru.zis.prompting.data.InputMessage
 import ru.zis.prompting.data.ResponsesRequest
@@ -125,6 +127,42 @@ class ChatAgent(
 
         ensureTaskLifecycle(userText = userText, temperature = temperature)
 
+        val deterministicScheduler = tryHandleDeterministicWeatherSchedulerRequest(userText)
+        if (deterministicScheduler != null) {
+            fullHistory += InputMessage(role = "assistant", content = deterministicScheduler)
+            updateWorkingMemory()
+            maybeRefreshSummary(temperature)
+
+            return AgentTurn(
+                text = deterministicScheduler,
+                latencyMs = 0,
+                usage = Usage(
+                    currentRequestTokens = null,
+                    modelResponseTokens = null,
+                    cumulativeInputTokens = if (hasCumulativeTokens) cumulativeInputTokensSum else null,
+                    cumulativeOutputTokens = if (hasCumulativeTokens) cumulativeOutputTokensSum else null
+                )
+            )
+        }
+
+        val deterministicWeather = tryHandleDeterministicWeatherRequest(userText)
+        if (deterministicWeather != null) {
+            fullHistory += InputMessage(role = "assistant", content = deterministicWeather)
+            updateWorkingMemory()
+            maybeRefreshSummary(temperature)
+
+            return AgentTurn(
+                text = deterministicWeather,
+                latencyMs = 0,
+                usage = Usage(
+                    currentRequestTokens = null,
+                    modelResponseTokens = null,
+                    cumulativeInputTokens = if (hasCumulativeTokens) cumulativeInputTokensSum else null,
+                    cumulativeOutputTokens = if (hasCumulativeTokens) cumulativeOutputTokensSum else null
+                )
+            )
+        }
+
         val blockedByState = buildLifecycleViolationMessageIfAny(userText)
         if (blockedByState != null) {
             fullHistory += InputMessage(role = "assistant", content = blockedByState)
@@ -207,6 +245,119 @@ class ChatAgent(
         return fallback.ifBlank { "(пустой ответ)" }
     }
 
+    private suspend fun tryHandleDeterministicWeatherRequest(userText: String): String? {
+        val text = userText.trim()
+        if (text.isBlank()) return null
+
+        val lower = text.lowercase()
+        val weatherWords = listOf("погод", "weather", "температур", "дожд", "снег", "ветер")
+        val schedulerWords = listOf("кажды", "период", "регуляр", "напомин", "уведом", "шторк", "старт", "останов")
+
+        val hasWeatherIntent = weatherWords.any { lower.contains(it) }
+        val hasSchedulerIntent = schedulerWords.any { lower.contains(it) }
+
+        if (!hasWeatherIntent || hasSchedulerIntent) return null
+
+        val location = extractLocationForWeather(text) ?: "Moscow"
+        val toolResult = mcpRegistry.callTool(
+            name = "get_weather_now",
+            arguments = buildJsonObject {
+                put("location", JsonPrimitive(location))
+                put("save", JsonPrimitive(true))
+            }
+        )
+
+        return if (toolResult.isError) {
+            "Не удалось получить погоду через API: ${toolResult.content}"
+        } else {
+            toolResult.content
+        }
+    }
+
+    private suspend fun tryHandleDeterministicWeatherSchedulerRequest(userText: String): String? {
+        val text = userText.trim()
+        if (text.isBlank()) return null
+
+        val lower = text.lowercase()
+        val weatherWords = listOf("погод", "weather", "температур", "дожд", "снег", "ветер")
+        val schedulerWords = listOf("кажды", "период", "регуляр", "напомин", "уведом", "шторк", "старт", "останов", "сводк", "статус")
+
+        val hasWeatherIntent = weatherWords.any { lower.contains(it) }
+        val hasSchedulerIntent = schedulerWords.any { lower.contains(it) }
+        if (!hasSchedulerIntent) return null
+        if (!hasWeatherIntent) {
+            val genericNotificationOnly = listOf("уведом", "напомин", "кажды", "период").any { lower.contains(it) }
+            if (!genericNotificationOnly) return null
+        }
+
+        val action = when {
+            lower.contains("останов") || lower.contains("выключ") || lower.contains("stop") -> "stop"
+            lower.contains("статус") || lower.contains("работает") || lower.contains("status") -> "status"
+            lower.contains("сводк") || lower.contains("истори") || lower.contains("summary") -> "summary"
+            else -> "start"
+        }
+
+        val arguments = buildJsonObject {
+            put("action", JsonPrimitive(action))
+
+            if (action == "start") {
+                val location = extractLocationForWeather(text) ?: "Moscow"
+                val interval = extractIntervalMinutes(text) ?: 60
+                put("location", JsonPrimitive(location))
+                put("intervalMinutes", JsonPrimitive(interval))
+                put("runNow", JsonPrimitive(true))
+            }
+
+            if (action == "summary") {
+                put("limit", JsonPrimitive(10))
+            }
+        }
+
+        val toolResult = mcpRegistry.callTool(name = "weather_scheduler", arguments = arguments)
+        return if (toolResult.isError) {
+            "Не удалось выполнить weather_scheduler: ${toolResult.content}"
+        } else {
+            toolResult.content
+        }
+    }
+
+    private fun extractLocationForWeather(text: String): String? {
+        val normalized = text.replace('\n', ' ').trim()
+        if (normalized.isBlank()) return null
+
+        val byV = Regex("\\bв\\s+([A-Za-zА-Яа-яЁё\\-\\s]{2,40})", RegexOption.IGNORE_CASE)
+            .find(normalized)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            ?.trim('.', ',', '!', '?')
+
+        if (!byV.isNullOrBlank()) {
+            return byV
+                .replace(Regex("\\b(сейчас|пожалуйста|каждые|каждый|минут|час|часа|часов)\\b", RegexOption.IGNORE_CASE), "")
+                .trim()
+                .takeIf { it.isNotBlank() }
+        }
+
+        return null
+    }
+
+    private fun extractIntervalMinutes(text: String): Int? {
+        val normalized = text.lowercase()
+        val minutesMatch = Regex("(\\d{1,4})\\s*(мин|мину|minutes?)").find(normalized)
+        if (minutesMatch != null) {
+            return minutesMatch.groupValues[1].toIntOrNull()?.coerceAtLeast(15)
+        }
+
+        val hoursMatch = Regex("(\\d{1,3})\\s*(час|часа|часов|hours?)").find(normalized)
+        if (hoursMatch != null) {
+            val hours = hoursMatch.groupValues[1].toIntOrNull() ?: return null
+            return (hours * 60).coerceAtLeast(15)
+        }
+
+        return null
+    }
+
     private suspend fun requestModel(temperature: Float?) = api.createResponse(
         ResponsesRequest(
             model = model,
@@ -263,6 +414,12 @@ class ChatAgent(
             appendLine("=== MCP ИНСТРУМЕНТЫ ===")
             appendLine("Доступные инструменты:")
             appendLine(toolsText)
+            appendLine()
+            appendLine("ВАЖНО:")
+            appendLine("- Для запросов о погоде и других внешних/актуальных данных ОБЯЗАТЕЛЬНО вызывай MCP-инструмент, не придумывай ответ из памяти.")
+            appendLine("- Если речь о разовом запросе погоды — используй get_weather_now.")
+            appendLine("- Если речь о периодическом сборе/напоминаниях — используй weather_scheduler.")
+            appendLine("- Если локация неоднозначна, сначала уточни её у пользователя или используй geocode_address для уточнения адреса.")
             appendLine()
             appendLine("Если нужен инструмент — верни ТОЛЬКО JSON без markdown:")
             appendLine("{\"tool\":\"имя_инструмента\",\"arguments\":{...}}")

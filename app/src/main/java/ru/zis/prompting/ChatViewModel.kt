@@ -28,6 +28,8 @@ data class UiMessage(
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val app: App = application as App
+
     var inputText by mutableStateOf("")
     var temperature by mutableFloatStateOf(1.0f)
 
@@ -43,16 +45,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val model = "openai/gpt-5.2"
 
     private val api = RouterAiApiFactory.create()
-    private val agent = ChatAgent(api = api, model = model)
+    private val agent = ChatAgent(
+        api = api,
+        model = model,
+        mcpRegistry = app.mcpRegistry
+    )
 
     private val repository: ChatRepository =
-        (application as App).chatRepository
+        app.chatRepository
 
     private val profileRepository: UserProfileRepository =
-        (application as App).userProfileRepository
+        app.userProfileRepository
 
     private val invariantRepository: InvariantRepository =
-        (application as App).invariantRepository
+        app.invariantRepository
 
     var activeProfileName by mutableStateOf<String?>(null)
         private set
