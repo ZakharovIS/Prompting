@@ -32,10 +32,22 @@ class McpRegistry(
             )
 
             if (context != null && weatherRepository != null) {
+                val multiFetchTool = WeatherMultiFetchMcpTool()
+                val summarizeTool = WeatherSummarizeMcpTool()
+                val saveReportTool = WeatherSaveReportMcpTool(weatherRepository = weatherRepository)
+
                 tools += WeatherMcpTool(weatherRepository = weatherRepository)
                 tools += WeatherSchedulerMcpTool(
                     weatherRepository = weatherRepository,
                     scheduler = WeatherScheduler(context.applicationContext)
+                )
+                tools += multiFetchTool
+                tools += summarizeTool
+                tools += saveReportTool
+                tools += WeatherPipelineMcpTool(
+                    multiFetchTool = multiFetchTool,
+                    summarizeTool = summarizeTool,
+                    saveReportTool = saveReportTool
                 )
             }
 

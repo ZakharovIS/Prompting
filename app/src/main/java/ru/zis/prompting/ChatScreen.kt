@@ -52,6 +52,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun ChatScreen(
     onOpenProfiles: () -> Unit,
     onOpenMcp: () -> Unit,
+    onOpenWeatherPipeline: () -> Unit,
     onOpenWeatherHistory: () -> Unit,
     vm: ChatViewModel = viewModel()
 ) {
@@ -91,6 +92,13 @@ fun ChatScreen(
                             onClick = {
                                 topBarMenuExpanded = false
                                 onOpenMcp()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Weather pipeline") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                onOpenWeatherPipeline()
                             }
                         )
                         DropdownMenuItem(

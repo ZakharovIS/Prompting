@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
                     AppScreen.Chat -> ChatScreen(
                         onOpenProfiles = { screen = AppScreen.Profiles },
                         onOpenMcp = { screen = AppScreen.Mcp },
+                        onOpenWeatherPipeline = { screen = AppScreen.WeatherPipeline },
                         onOpenWeatherHistory = { screen = AppScreen.WeatherHistory }
                     )
 
@@ -43,6 +44,10 @@ class MainActivity : ComponentActivity() {
                     )
 
                     AppScreen.WeatherHistory -> WeatherHistoryScreen(
+                        onBack = { screen = AppScreen.Chat }
+                    )
+
+                    AppScreen.WeatherPipeline -> WeatherPipelineScreen(
                         onBack = { screen = AppScreen.Chat }
                     )
                 }
@@ -67,5 +72,6 @@ private enum class AppScreen {
     Chat,
     Profiles,
     Mcp,
-    WeatherHistory
+    WeatherHistory,
+    WeatherPipeline
 }
