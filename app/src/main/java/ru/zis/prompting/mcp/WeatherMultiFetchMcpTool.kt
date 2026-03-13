@@ -54,6 +54,7 @@ class WeatherMultiFetchMcpTool : McpTool {
             api.fetchCurrent(city).fold(
                 onSuccess = { snapshot ->
                     results += buildJsonObject {
+                        put("requestedCity", JsonPrimitive(city))
                         put("location", JsonPrimitive(snapshot.location))
                         snapshot.temperatureC?.let { put("temperatureC", JsonPrimitive(it)) }
                         snapshot.conditions?.let { put("conditions", JsonPrimitive(it)) }
@@ -85,7 +86,7 @@ class WeatherMultiFetchMcpTool : McpTool {
 
         return McpToolResult(
             isError = false,
-            content = "Получено ${results.size} из ${cities.size} городов.",
+            content = "Погода: успешно ${results.size} из ${cities.size} городов (ошибок: ${failures.size}).",
             payload = buildJsonObject {
                 put("requestedCount", JsonPrimitive(cities.size))
                 put("successCount", JsonPrimitive(results.size))

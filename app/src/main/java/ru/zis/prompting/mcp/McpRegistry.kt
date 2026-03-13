@@ -27,8 +27,12 @@ class McpRegistry(
             context: Context? = null,
             weatherRepository: WeatherRepository? = null
         ): McpRegistry {
+            val geocodingTool = GeocodingMcpTool()
+            val sunriseSunsetTool = SunriseSunsetMcpTool()
+
             val tools = mutableListOf<McpTool>(
-                GeocodingMcpTool()
+                geocodingTool,
+                sunriseSunsetTool
             )
 
             if (context != null && weatherRepository != null) {
@@ -45,8 +49,9 @@ class McpRegistry(
                 tools += summarizeTool
                 tools += saveReportTool
                 tools += WeatherPipelineMcpTool(
+                    geocodingTool = geocodingTool,
+                    sunriseSunsetTool = sunriseSunsetTool,
                     multiFetchTool = multiFetchTool,
-                    summarizeTool = summarizeTool,
                     saveReportTool = saveReportTool
                 )
             }

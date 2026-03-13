@@ -86,28 +86,32 @@ fun WeatherPipelineScreen(
             )
 
             LazyColumn(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(state.steps, key = { it.order }) { step ->
                     PipelineStepCard(step)
                 }
-            }
 
-            state.finalMessage?.let {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (state.isError) MaterialTheme.colorScheme.errorContainer
-                        else MaterialTheme.colorScheme.primaryContainer
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = if (state.isError) "Итог: ошибка" else "Итог: успех",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Text(it, style = MaterialTheme.typography.bodySmall)
+                state.finalMessage?.let { finalMessage ->
+                    items(listOf(finalMessage), key = { "final_message" }) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (state.isError) MaterialTheme.colorScheme.errorContainer
+                                else MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = if (state.isError) "Итог: ошибка" else "Итог: успех",
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(finalMessage, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
                 }
             }
@@ -117,6 +121,21 @@ fun WeatherPipelineScreen(
 
 @Composable
 private fun PipelineStepCard(step: PipelineStepState) {
+    val prettyName = when (step.name) {
+        "geocode_address" -> "🌍 geocode_address"
+        "sunrise_sunset" -> "🌅 sunrise_sunset"
+        "weather_multi_fetch" -> "🌤 weather_multi_fetch"
+        "weather_save_report" -> "💾 weather_save_report"
+        else -> step.name
+    }
+
+    val prettyStatus = when (step.status) {
+        PipelineStepStatus.PENDING -> "⏳ PENDING"
+        PipelineStepStatus.RUNNING -> "🔄 RUNNING"
+        PipelineStepStatus.DONE -> "✅ DONE"
+        PipelineStepStatus.ERROR -> "❌ ERROR"
+    }
+
     val color = when (step.status) {
         PipelineStepStatus.PENDING -> MaterialTheme.colorScheme.surfaceVariant
         PipelineStepStatus.RUNNING -> MaterialTheme.colorScheme.tertiaryContainer
@@ -134,8 +153,8 @@ private fun PipelineStepCard(step: PipelineStepState) {
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text("${step.order}. ${step.name}", style = MaterialTheme.typography.titleSmall)
-            Text("Статус: ${step.status}", style = MaterialTheme.typography.bodySmall)
+            Text("${step.order}. $prettyName", style = MaterialTheme.typography.titleSmall)
+            Text("Статус: $prettyStatus", style = MaterialTheme.typography.bodySmall)
             step.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
