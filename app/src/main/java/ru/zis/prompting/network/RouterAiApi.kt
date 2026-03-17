@@ -11,6 +11,8 @@ import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.POST
 import ru.zis.prompting.BuildConfig
+import ru.zis.prompting.data.EmbeddingsRequest
+import ru.zis.prompting.data.EmbeddingsResponse
 import ru.zis.prompting.data.ResponsesRequest
 import ru.zis.prompting.data.ResponsesResponse
 import java.util.concurrent.TimeUnit
@@ -18,6 +20,9 @@ import java.util.concurrent.TimeUnit
 interface RouterAiApi {
     @POST("responses")
     suspend fun createResponse(@Body body: ResponsesRequest): ResponsesResponse
+
+    @POST("embeddings")
+    suspend fun createEmbeddings(@Body body: EmbeddingsRequest): EmbeddingsResponse
 }
 
 object RouterAiApiFactory {

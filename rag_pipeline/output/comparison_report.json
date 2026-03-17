@@ -2,14 +2,14 @@
   "embedding_model": "openai/text-embedding-3-large",
   "mock_embeddings": false,
   "corpus": {
-    "documents_count": 61,
-    "total_chars": 211096,
-    "estimated_pages": 117.28,
+    "documents_count": 73,
+    "total_chars": 262260,
+    "estimated_pages": 145.7,
     "documents": [
       {
         "source": "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt",
         "title": "ChatAgent",
-        "chars": 34505
+        "chars": 35280
       },
       {
         "source": "app/src/main/java/ru/zis/prompting/agent/InvariantModels.kt",
@@ -22,6 +22,11 @@
         "chars": 474
       },
       {
+        "source": "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt",
+        "title": "RagRepository",
+        "chars": 6913
+      },
+      {
         "source": "app/src/main/java/ru/zis/prompting/agent/TaskProfileModels.kt",
         "title": "TaskProfileModels",
         "chars": 5020
@@ -29,17 +34,27 @@
       {
         "source": "app/src/main/java/ru/zis/prompting/App.kt",
         "title": "App",
-        "chars": 1290
+        "chars": 1505
       },
       {
         "source": "app/src/main/java/ru/zis/prompting/ChatScreen.kt",
         "title": "ChatScreen",
-        "chars": 15472
+        "chars": 16144
       },
       {
         "source": "app/src/main/java/ru/zis/prompting/ChatViewModel.kt",
         "title": "ChatViewModel",
-        "chars": 9920
+        "chars": 10193
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/EmbeddingsRequest.kt",
+        "title": "EmbeddingsRequest",
+        "chars": 284
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/EmbeddingsResponse.kt",
+        "title": "EmbeddingsResponse",
+        "chars": 422
       },
       {
         "source": "app/src/main/java/ru/zis/prompting/data/InputMessage.kt",
@@ -234,7 +249,7 @@
       {
         "source": "app/src/main/java/ru/zis/prompting/network/RouterAiApi.kt",
         "title": "RouterAiApi",
-        "chars": 2124
+        "chars": 2328
       },
       {
         "source": "app/src/main/java/ru/zis/prompting/profile/UserProfile.kt",
@@ -307,6 +322,51 @@
         "chars": 1869
       },
       {
+        "source": "rag_pipeline/chunkers.py",
+        "title": "chunkers",
+        "chars": 4808
+      },
+      {
+        "source": "rag_pipeline/compare.py",
+        "title": "compare",
+        "chars": 2432
+      },
+      {
+        "source": "rag_pipeline/embeddings.py",
+        "title": "embeddings",
+        "chars": 4696
+      },
+      {
+        "source": "rag_pipeline/eval.py",
+        "title": "eval",
+        "chars": 5850
+      },
+      {
+        "source": "rag_pipeline/index.py",
+        "title": "index",
+        "chars": 2013
+      },
+      {
+        "source": "rag_pipeline/pipeline.py",
+        "title": "pipeline",
+        "chars": 7302
+      },
+      {
+        "source": "rag_pipeline/rag_query.py",
+        "title": "rag_query",
+        "chars": 9660
+      },
+      {
+        "source": "rag_pipeline/README.md",
+        "title": "RAG Indexing Pipeline (для сдачи задания)",
+        "chars": 4624
+      },
+      {
+        "source": "rag_pipeline/requirements.txt",
+        "title": "requirements",
+        "chars": 21
+      },
+      {
         "source": "README.md",
         "title": "Prompting — агент с памятью, инвариантами и MCP-инструментами",
         "chars": 5268
@@ -316,21 +376,21 @@
   "stats": {
     "fixed_size": {
       "strategy": "fixed_size",
-      "chunks_count": 209,
-      "avg_chars": 1004.74,
-      "min_chars": 68,
+      "chunks_count": 259,
+      "avg_chars": 1007.94,
+      "min_chars": 6,
       "max_chars": 1200,
-      "unique_sources": 61,
+      "unique_sources": 73,
       "unique_sections": 1
     },
     "structural": {
       "strategy": "structural",
-      "chunks_count": 206,
-      "avg_chars": 936.14,
+      "chunks_count": 250,
+      "avg_chars": 984.87,
       "min_chars": 18,
       "max_chars": 2200,
-      "unique_sources": 61,
-      "unique_sections": 152
+      "unique_sources": 73,
+      "unique_sections": 171
     }
   },
   "output": {

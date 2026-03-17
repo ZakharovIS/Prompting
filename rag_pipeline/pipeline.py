@@ -14,6 +14,19 @@ from index import save_json_index, save_sqlite_index
 SUPPORTED_EXTENSIONS = {".md", ".txt", ".kt", ".java", ".py"}
 
 
+def _safe_chunk_prefix(strategy: str, source: str) -> str:
+    safe = []
+    for ch in source.lower():
+        if ch.isalnum():
+            safe.append(ch)
+        else:
+            safe.append("_")
+    normalized = "".join(safe).strip("_")
+    if not normalized:
+        normalized = "doc"
+    return f"{strategy}_{normalized}"
+
+
 def collect_documents(paths: Iterable[Path]) -> list[Path]:
     files: list[Path] = []
     for p in paths:
@@ -72,7 +85,7 @@ def build_chunks(
             title=title,
             chunk_size=fixed_chunk_size,
             overlap=0,
-            chunk_prefix=f"fixed_{file_path.stem}",
+            chunk_prefix=_safe_chunk_prefix("fixed", source),
         )
         structural = structural_chunking(
             doc_text=text,
@@ -80,7 +93,7 @@ def build_chunks(
             title=title,
             max_section_chars=structural_max_chars,
             overlap=structural_overlap,
-            chunk_prefix=f"struct_{file_path.stem}",
+            chunk_prefix=_safe_chunk_prefix("struct", source),
         )
 
         fixed_chunks.extend(fixed)
@@ -168,7 +181,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--inputs",
         nargs="+",
-        default=["README.md", "app/src/main/java"],
+        default=["README.md", "app/src/main/java", "rag_pipeline"],
         help="Список файлов/директорий для индексации",
     )
     parser.add_argument("--out-dir", default="rag_pipeline/output", help="Куда сохранять индекс")

@@ -1,6 +1,7 @@
 package ru.zis.prompting
 
 import android.app.Application
+import ru.zis.prompting.agent.RagRepository
 import ru.zis.prompting.mcp.McpRegistry
 import ru.zis.prompting.weather.WeatherNotifications
 import ru.zis.prompting.db.AppDatabase
@@ -47,6 +48,13 @@ class App : Application() {
         McpRegistry.default(
             context = this,
             weatherRepository = weatherRepository
+        )
+    }
+
+    val ragRepository by lazy {
+        RagRepository(
+            context = this,
+            api = ru.zis.prompting.network.RouterAiApiFactory.create()
         )
     }
 }

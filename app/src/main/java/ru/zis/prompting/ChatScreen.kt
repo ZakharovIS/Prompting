@@ -30,6 +30,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -172,6 +173,22 @@ fun ChatScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (vm.taskStageCode == null) MaterialTheme.colorScheme.error else Color.Unspecified
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "RAG режим: ${if (vm.ragEnabled) "ВКЛ" else "ВЫКЛ"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Switch(
+                    checked = vm.ragEnabled,
+                    onCheckedChange = { vm.updateRagEnabled(it) },
+                    enabled = !vm.loading && !vm.historyLoading
+                )
+            }
 
             /*Text(
                 text = "Температура: ${String.format(Locale.US, "%.2f", vm.temperature)}",

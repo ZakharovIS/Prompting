@@ -37,6 +37,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    var ragEnabled by mutableStateOf(false)
+        private set
 
     /** true пока идёт начальная загрузка истории из БД */
     var historyLoading by mutableStateOf(true)
@@ -48,7 +50,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val agent = ChatAgent(
         api = api,
         model = model,
-        mcpRegistry = app.mcpRegistry
+        mcpRegistry = app.mcpRegistry,
+        ragRepository = app.ragRepository
     )
 
     private val repository: ChatRepository =
@@ -101,9 +104,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 applyActiveProfile(activeProfile)
                 agent.setInvariants(invariants)
+                agent.setRagEnabled(ragEnabled)
                 historyLoading = false
             }
         }
+    }
+
+    fun updateRagEnabled(enabled: Boolean) {
+        ragEnabled = enabled
+        agent.setRagEnabled(enabled)
     }
 
     fun refreshActiveProfile() {

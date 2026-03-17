@@ -18,7 +18,8 @@ class ChatAgent(
     private val model: String = "openai/gpt-5.2",
     private val maxHistoryMessages: Int = 40,
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
-    private val mcpRegistry: McpRegistry = McpRegistry.default()
+    private val mcpRegistry: McpRegistry = McpRegistry.default(),
+    private val ragRepository: RagRepository? = null
 ) {
     private val fullHistory = mutableListOf<InputMessage>()
     private var workingMemory: WorkingMemory = WorkingMemory()
@@ -32,6 +33,7 @@ class ChatAgent(
     private var cumulativeInputTokensSum: Int = 0
     private var cumulativeOutputTokensSum: Int = 0
     private var hasCumulativeTokens: Boolean = false
+    private var ragEnabled: Boolean = false
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
@@ -85,6 +87,12 @@ class ChatAgent(
         invariants.clear()
         invariants.addAll(items.filter { it.rule.isNotBlank() })
     }
+
+    fun setRagEnabled(enabled: Boolean) {
+        ragEnabled = enabled
+    }
+
+    fun isRagEnabled(): Boolean = ragEnabled
 
     /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */
     fun restoreHistory(saved: List<InputMessage>, savedSummary: String?) {
@@ -384,8 +392,18 @@ class ChatAgent(
         return parsed
     }
 
-    private fun buildContextMessages(): List<InputMessage> {
+    private suspend fun buildContextMessages(): List<InputMessage> {
         val recentMessages = fullHistory.takeLast(maxHistoryMessages.coerceAtMost(RECENT_MESSAGES_COUNT))
+        val lastUserQuestion = fullHistory.lastOrNull { it.role == "user" }?.content.orEmpty()
+        val ragSystem = if (ragEnabled) {
+            runCatching {
+                ragRepository?.buildRagSystemMessage(question = lastUserQuestion)
+            }.getOrNull()?.takeIf { it.isNotBlank() }?.let {
+                InputMessage(role = SUMMARY_ROLE, content = it)
+            }
+        } else {
+            null
+        }
 
         val profileSystem = buildProfileSystemMessage()
         val taskLifecycleSystem = buildTaskLifecycleSystemMessage()
@@ -400,7 +418,16 @@ class ChatAgent(
                 content = "Краткое summary предыдущего диалога:\n$it"
             )
         }
-        return listOfNotNull(profileSystem, taskLifecycleSystem, invariantsSystem, longTermSystem, workingSystem, mcpSystem, summaryMessage) + recentMessages
+        return listOfNotNull(
+            profileSystem,
+            taskLifecycleSystem,
+            invariantsSystem,
+            longTermSystem,
+            workingSystem,
+            mcpSystem,
+            ragSystem,
+            summaryMessage
+        ) + recentMessages
     }
 
     private fun buildMcpToolsSystemMessage(): InputMessage {
