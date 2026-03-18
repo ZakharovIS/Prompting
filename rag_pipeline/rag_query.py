@@ -4,11 +4,14 @@ import argparse
 import json
 import math
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from reranker import apply_relevance_stage
 
 try:
     from dotenv import load_dotenv
@@ -42,11 +45,15 @@ class RouterAiClient:
         base_url: str = "https://routerai.ru/api/v1",
         embedding_model: str = "openai/text-embedding-3-large",
         response_model: str = "openai/gpt-5.2",
+        timeout_seconds: int = 120,
+        max_retries: int = 2,
     ):
         self.api_key = api_key.strip()
         self.base_url = base_url.rstrip("/")
         self.embedding_model = embedding_model
         self.response_model = response_model
+        self.timeout_seconds = max(10, int(timeout_seconds))
+        self.max_retries = max(0, int(max_retries))
         if not self.api_key:
             raise RuntimeError("ROUTERAI_API_KEY пустой")
 
@@ -79,29 +86,41 @@ class RouterAiClient:
     def _post_json(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.base_url}{endpoint}"
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        req = Request(
-            url=url,
-            data=data,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-        )
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            req = Request(
+                url=url,
+                data=data,
+                method="POST",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
 
-        try:
-            with urlopen(req, timeout=90) as resp:
-                body = resp.read().decode("utf-8")
-                parsed = json.loads(body)
-        except HTTPError as e:
-            err = e.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"HTTP {e.code} {endpoint}: {err}") from e
-        except URLError as e:
-            raise RuntimeError(f"Ошибка сети {endpoint}: {e}") from e
+            try:
+                with urlopen(req, timeout=self.timeout_seconds) as resp:
+                    body = resp.read().decode("utf-8")
+                    parsed = json.loads(body)
+                if isinstance(parsed, dict) and parsed.get("error"):
+                    raise RuntimeError(f"RouterAI error: {parsed['error']}")
+                return parsed
+            except HTTPError as e:
+                err = e.read().decode("utf-8", errors="ignore")
+                last_error = RuntimeError(f"HTTP {e.code} {endpoint}: {err}")
+            except URLError as e:
+                last_error = RuntimeError(f"Ошибка сети {endpoint}: {e}")
+            except TimeoutError as e:
+                last_error = RuntimeError(f"Timeout {endpoint}: {e}")
+            except Exception as e:
+                last_error = e
 
-        if isinstance(parsed, dict) and parsed.get("error"):
-            raise RuntimeError(f"RouterAI error: {parsed['error']}")
-        return parsed
+            if attempt < self.max_retries:
+                time.sleep(1.0 + attempt)
+
+        if last_error is None:
+            raise RuntimeError(f"Не удалось выполнить запрос {endpoint}")
+        raise RuntimeError(str(last_error)) from last_error
 
     @staticmethod
     def _extract_text(parsed: dict[str, Any]) -> str:
@@ -183,6 +202,15 @@ class RagSearcher:
 
 
 def build_rag_system_prompt(question: str, hits: list[RagHit]) -> str:
+    if not hits:
+        return (
+            "=== RAG КОНТЕКСТ ===\n"
+            "Релевантные фрагменты не найдены после фильтрации/reranking.\n"
+            "Отвечай аккуратно и явно укажи, что в базе нет подходящего контекста.\n"
+            f"Вопрос пользователя: {question}\n"
+            "=== КОНЕЦ RAG КОНТЕКСТА ==="
+        )
+
     chunks = "\n\n".join(
         (
             f"source: {h.source}\n"
@@ -208,6 +236,29 @@ def build_rag_system_prompt(question: str, hits: list[RagHit]) -> str:
     )
 
 
+def rewrite_query_for_retrieval(client: RouterAiClient, question: str) -> str:
+    prompt = (
+        "Перепиши запрос пользователя в лаконичную форму для retrieval по базе знаний проекта.\n"
+        "Требования:\n"
+        "1) Сохрани исходный смысл.\n"
+        "2) Добавь ключевые технические термины, если они явно следуют из вопроса.\n"
+        "3) Убери вводные и разговорные формулировки.\n"
+        "4) Верни только одну строку переписанного запроса, без пояснений.\n\n"
+        f"Исходный вопрос: {question}"
+    )
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты модуль query rewriting для retrieval.",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    rewritten = client.generate(messages, temperature=0.0).strip()
+    if not rewritten:
+        return question
+    return rewritten
+
+
 def answer_question(
     *,
     client: RouterAiClient,
@@ -215,14 +266,48 @@ def answer_question(
     question: str,
     use_rag: bool,
     top_k: int = 4,
+    top_k_before: int | None = None,
+    top_k_after: int | None = None,
+    rerank: bool = False,
+    rerank_mode: str = "threshold",
+    rerank_threshold: float = 0.35,
+    rewrite_query: bool = False,
 ) -> tuple[str, list[RagHit]]:
     messages: list[dict[str, str]] = []
     hits: list[RagHit] = []
 
     if use_rag:
-        qvec = client.embed_query(question)
-        hits = searcher.top_k(qvec, top_k=top_k)
+        k_before = max(1, top_k_before if top_k_before is not None else top_k)
+        k_after = max(1, top_k_after if top_k_after is not None else top_k)
+
+        retrieval_query = question
+        if rewrite_query:
+            retrieval_query = rewrite_query_for_retrieval(client, question)
+
+        qvec = client.embed_query(retrieval_query)
+        hits_before = searcher.top_k(qvec, top_k=k_before)
+
+        if rerank:
+            hits = list(
+                apply_relevance_stage(
+                    mode=rerank_mode,
+                    hits=hits_before,
+                    top_k_after=k_after,
+                    threshold=rerank_threshold,
+                    client=client if rerank_mode == "llm" else None,
+                    question=question,
+                )
+            )
+        else:
+            hits = hits_before[:k_after]
+
         rag_system = build_rag_system_prompt(question, hits)
+        if rewrite_query and retrieval_query != question:
+            rag_system = (
+                rag_system
+                + "\n\n"
+                + f"[technical retrieval query]: {retrieval_query}"
+            )
         messages.append({"role": "system", "content": rag_system})
 
     messages.append({"role": "user", "content": question})
@@ -255,12 +340,20 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="RAG query: with/without RAG modes")
     p.add_argument("--question", required=True)
     p.add_argument("--use-rag", action="store_true")
-    p.add_argument("--top-k", type=int, default=4)
+    p.add_argument("--top-k", type=int, default=4, help="Legacy: top-K для retrieval и final, если не заданы отдельные")
+    p.add_argument("--top-k-before", type=int, default=None, help="Сколько кандидатов взять до фильтра/rerank")
+    p.add_argument("--top-k-after", type=int, default=None, help="Сколько кандидатов оставить после фильтра/rerank")
+    p.add_argument("--rewrite-query", action="store_true", help="Включить query rewriting перед retrieval")
+    p.add_argument("--rerank", action="store_true", help="Включить второй этап релевантности (filter/rerank)")
+    p.add_argument("--rerank-mode", choices=["threshold", "llm"], default="threshold")
+    p.add_argument("--rerank-threshold", type=float, default=0.35)
     p.add_argument("--index", default="rag_pipeline/output/structural/index.json")
     p.add_argument("--embedding-model", default="openai/text-embedding-3-large")
     p.add_argument("--response-model", default="openai/gpt-5.2")
     p.add_argument("--routerai-base-url", default="https://routerai.ru/api/v1")
     p.add_argument("--local-properties-path", default="local.properties")
+    p.add_argument("--http-timeout", type=int, default=120, help="HTTP timeout в секундах для запросов к RouterAI")
+    p.add_argument("--max-retries", type=int, default=2, help="Количество retry при сетевых ошибках")
     return p.parse_args()
 
 
@@ -275,6 +368,8 @@ def main() -> None:
         base_url=args.routerai_base_url,
         embedding_model=args.embedding_model,
         response_model=args.response_model,
+        timeout_seconds=args.http_timeout,
+        max_retries=args.max_retries,
     )
     searcher = RagSearcher(args.index)
 
@@ -284,12 +379,27 @@ def main() -> None:
         question=args.question,
         use_rag=args.use_rag,
         top_k=args.top_k,
+        top_k_before=args.top_k_before,
+        top_k_after=args.top_k_after,
+        rerank=args.rerank,
+        rerank_mode=args.rerank_mode,
+        rerank_threshold=args.rerank_threshold,
+        rewrite_query=args.rewrite_query,
     )
 
     print("=== MODE ===")
     print("RAG" if args.use_rag else "NO_RAG")
     print()
     if args.use_rag:
+        print("settings:")
+        print(f"  rewrite_query={args.rewrite_query}")
+        print(f"  rerank={args.rerank}")
+        if args.rerank:
+            print(f"  rerank_mode={args.rerank_mode}")
+            print(f"  rerank_threshold={args.rerank_threshold}")
+        print(f"  top_k_before={args.top_k_before if args.top_k_before is not None else args.top_k}")
+        print(f"  top_k_after={args.top_k_after if args.top_k_after is not None else args.top_k}")
+        print()
         print("=== HITS ===")
         for i, h in enumerate(hits, 1):
             print(f"{i}. {h.score:.4f} | {h.source} | {h.section}")
