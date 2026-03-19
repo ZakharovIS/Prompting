@@ -20,6 +20,17 @@ except Exception:  # pragma: no cover
         return False
 
 
+LOW_RELEVANCE_FALLBACK = (
+    "## Ответ\n"
+    "Не знаю. В базе знаний нет достаточно релевантной информации по этому вопросу. "
+    "Уточните запрос.\n\n"
+    "## Источники\n"
+    "- нет релевантных источников\n\n"
+    "## Цитаты\n"
+    "- нет релевантных цитат"
+)
+
+
 def _l2_normalize(vec: list[float]) -> list[float]:
     norm = math.sqrt(sum(x * x for x in vec))
     if norm == 0:
@@ -206,13 +217,21 @@ def build_rag_system_prompt(question: str, hits: list[RagHit]) -> str:
         return (
             "=== RAG КОНТЕКСТ ===\n"
             "Релевантные фрагменты не найдены после фильтрации/reranking.\n"
-            "Отвечай аккуратно и явно укажи, что в базе нет подходящего контекста.\n"
+            "Если контекст пустой/слабый, верни строго структурированный ответ в формате:\n"
+            "## Ответ\n"
+            "Не знаю. В базе знаний нет достаточно релевантной информации по этому вопросу. Уточните запрос.\n\n"
+            "## Источники\n"
+            "- нет релевантных источников\n\n"
+            "## Цитаты\n"
+            "- нет релевантных цитат\n"
             f"Вопрос пользователя: {question}\n"
             "=== КОНЕЦ RAG КОНТЕКСТА ==="
         )
 
+    max_score = max((h.score for h in hits), default=0.0)
     chunks = "\n\n".join(
         (
+            f"chunk_id: {h.chunk_id}\n"
             f"source: {h.source}\n"
             f"title: {h.title}\n"
             f"section: {h.section}\n"
@@ -226,10 +245,26 @@ def build_rag_system_prompt(question: str, hits: list[RagHit]) -> str:
     return (
         "=== RAG КОНТЕКСТ ===\n"
         "Ниже — релевантные фрагменты базы знаний.\n"
-        "Опирайся на них, если они относятся к вопросу.\n"
-        "Если контекста недостаточно — явно напиши об этом.\n"
-        "По возможности указывай source.\n\n"
+        "Опирайся только на них, если они относятся к вопросу.\n\n"
+        "ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА (без markdown вне этих секций):\n"
+        "## Ответ\n"
+        "<краткий и точный ответ по контексту>\n\n"
+        "## Источники\n"
+        "- source: <путь>, section: <section>, chunk_id: <chunk_id>\n"
+        "- ...\n\n"
+        "## Цитаты\n"
+        "> \"<дословный фрагмент из найденных чанков>\"\n"
+        "> ...\n\n"
+        "Правила:\n"
+        "1) В секции 'Источники' перечисли только реально использованные чанки.\n"
+        "2) В секции 'Цитаты' приведи только дословные фрагменты из найденных чанков.\n"
+        "3) Смысл ответа в секции 'Ответ' должен соответствовать цитатам.\n"
+        "4) Если контекст пустой/слабый, верни:\n"
+        "   - Ответ: 'Не знаю. В базе знаний нет достаточно релевантной информации по этому вопросу. Уточните запрос.'\n"
+        "   - Источники: '- нет релевантных источников'\n"
+        "   - Цитаты: '- нет релевантных цитат'\n\n"
         f"Вопрос пользователя: {question}\n\n"
+        f"Максимальная релевантность среди найденных чанков: {max_score:.4f}\n\n"
         "Релевантные фрагменты:\n"
         f"{chunks}\n"
         "=== КОНЕЦ RAG КОНТЕКСТА ==="
@@ -271,6 +306,7 @@ def answer_question(
     rerank: bool = False,
     rerank_mode: str = "threshold",
     rerank_threshold: float = 0.35,
+    low_relevance_threshold: float = 0.25,
     rewrite_query: bool = False,
 ) -> tuple[str, list[RagHit]]:
     messages: list[dict[str, str]] = []
@@ -300,6 +336,10 @@ def answer_question(
             )
         else:
             hits = hits_before[:k_after]
+
+        max_score = max((h.score for h in hits), default=0.0)
+        if not hits or max_score < low_relevance_threshold:
+            return LOW_RELEVANCE_FALLBACK, hits
 
         rag_system = build_rag_system_prompt(question, hits)
         if rewrite_query and retrieval_query != question:
@@ -347,6 +387,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--rerank", action="store_true", help="Включить второй этап релевантности (filter/rerank)")
     p.add_argument("--rerank-mode", choices=["threshold", "llm"], default="threshold")
     p.add_argument("--rerank-threshold", type=float, default=0.35)
+    p.add_argument("--low-relevance-threshold", type=float, default=0.25, help="Порог max score для режима 'не знаю'")
     p.add_argument("--index", default="rag_pipeline/output/structural/index.json")
     p.add_argument("--embedding-model", default="openai/text-embedding-3-large")
     p.add_argument("--response-model", default="openai/gpt-5.2")
@@ -384,6 +425,7 @@ def main() -> None:
         rerank=args.rerank,
         rerank_mode=args.rerank_mode,
         rerank_threshold=args.rerank_threshold,
+        low_relevance_threshold=args.low_relevance_threshold,
         rewrite_query=args.rewrite_query,
     )
 

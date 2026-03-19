@@ -1,0 +1,480 @@
+{
+  "summary": {
+    "questions_count": 10,
+    "checked_first_n": 10,
+    "has_sources_in_each": {
+      "ok": true,
+      "count": 10,
+      "total": 10
+    },
+    "has_quotes_in_each": {
+      "ok": true,
+      "count": 10,
+      "total": 10
+    },
+    "meaning_matches_quotes": {
+      "ok_count": 10,
+      "total": 10
+    },
+    "unknown_mode_count": 2,
+    "errors_count": 0,
+    "settings": {
+      "top_k": 4,
+      "top_k_before": 8,
+      "top_k_after": 4,
+      "rerank_threshold": 0.35,
+      "low_relevance_threshold": 0.25
+    }
+  },
+  "results": [
+    {
+      "id": "Q1",
+      "question": "Как в чате включается и выключается RAG режим?",
+      "answer": "## Ответ\nRAG режим в чате переключается тумблером (Switch) на экране `ChatScreen`: при переключении вызывается `ChatViewModel.updateRagEnabled(enabled)`, который сохраняет флаг `ragEnabled` и передаёт его в `ChatAgent.setRagEnabled(enabled)`. Если `ragEnabled = false`, запрос отправляется в модель без добавления RAG-контекста.\n\n## Источники\n- source: rag_pipeline/README.md, section: Интеграция с чат-агентом Android, chunk_id: struct_rag_pipeline_readme_md_00005\n- source: app/src/main/java/ru/zis/prompting/ChatViewModel.kt, section: fun updateRagEnabled(enabled: Boolean) {, chunk_id: struct_app_src_main_java_ru_zis_prompting_chatviewmodel_kt_00003\n- source: app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt, section: fun setRagEnabled(enabled: Boolean) {, chunk_id: struct_app_src_main_java_ru_zis_prompting_agent_chatagent_kt_00010\n\n## Цитаты\n> \"Переключение режима:\\n\\n- UI `ChatScreen` (Switch) → `ChatViewModel.updateRagEnabled(...)`\\n- далее `ChatAgent.setRagEnabled(...)`\\n- если `ragEnabled = false`, запрос идет в модель без RAG-контекста\"\n\n> \"fun updateRagEnabled(enabled: Boolean) {\\n        ragEnabled = enabled\\n        agent.setRagEnabled(enabled)\\n    }\"\n\n> \"fun setRagEnabled(enabled: Boolean) {\\n        ragEnabled = enabled\\n    }\"",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00005",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Интеграция с чат-агентом Android",
+          "text": "## Интеграция с чат-агентом Android\n\nRAG подключен в агенте через `RagRepository`:\n\n- `question` берется как последнее user-сообщение\n- `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\n- `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками\n- в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\n\nПереключение режима:\n\n- UI `ChatScreen` (Switch) → `ChatViewModel.updateRagEnabled(...)`\n- далее `ChatAgent.setRagEnabled(...)`\n- если `ragEnabled = false`, запрос идет в модель без RAG-контекста",
+          "score": 0.5885235954408802
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_agent_chatagent_kt_00010",
+          "source": "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt",
+          "title": "ChatAgent",
+          "section": "fun setRagEnabled(enabled: Boolean) {",
+          "text": "fun setRagEnabled(enabled: Boolean) {\n        ragEnabled = enabled\n    }",
+          "score": 0.4669754645948583
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_agent_chatagent_kt_00011",
+          "source": "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt",
+          "title": "ChatAgent",
+          "section": "fun isRagEnabled(): Boolean = ragEnabled",
+          "text": "fun isRagEnabled(): Boolean = ragEnabled\n\n    /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */",
+          "score": 0.44956882341241144
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_chatviewmodel_kt_00003",
+          "source": "app/src/main/java/ru/zis/prompting/ChatViewModel.kt",
+          "title": "ChatViewModel",
+          "section": "fun updateRagEnabled(enabled: Boolean) {",
+          "text": "fun updateRagEnabled(enabled: Boolean) {\n        ragEnabled = enabled\n        agent.setRagEnabled(enabled)\n    }",
+          "score": 0.44669503939679345
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": true,
+      "quotes_non_empty": true,
+      "is_unknown_mode": false,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Token overlap answer/quotes: 0.467"
+      ],
+      "error": null
+    },
+    {
+      "id": "Q2",
+      "question": "Опиши последовательность RAG в проекте: вопрос → поиск релевантных чанков → объединение с вопросом → запрос к LLM.",
+      "answer": "## Ответ\nПоследовательность RAG в проекте такая:\n\n1) Берётся `question` — в Android-агенте это «последнее user-сообщение».  \n2) Выполняется retrieval: `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity.  \n3) Объединение с вопросом: `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками, и в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением.  \n4) Запрос к LLM: дальше запрос уходит в модель уже с добавленным RAG-контекстом (если `ragEnabled = false`, то запрос идёт без RAG-контекста). Также это описано как пайплайн `rag_query.py`: «вопрос → retrieval → объединение с вопросом → LLM».\n\n## Источники\n- source: rag_pipeline/README.md, section: Интеграция с чат-агентом Android, chunk_id: struct_rag_pipeline_readme_md_00005\n- source: rag_pipeline/README.md, section: Что будет на выходе, chunk_id: struct_rag_pipeline_readme_md_00004\n\n## Цитаты\n> \"RAG подключен в агенте через `RagRepository`:  \n> - `question` берется как последнее user-сообщение  \n> - `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity  \n> - `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками  \n> - в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\"\n\n> \"- `rag_query.py` — «вопрос → retrieval → объединение с вопросом → LLM»\"\n\n> \"- если `ragEnabled = false`, запрос идет в модель без RAG-контекста\"",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00006",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Запуск сравнения «без RAG / с RAG» для одного вопроса",
+          "text": "## Запуск сравнения «без RAG / с RAG» для одного вопроса\n\nБез RAG:\n\n```bash\npython rag_pipeline/rag_query.py --question \"Опиши последовательность RAG в проекте\"\n```\n\nС RAG:\n\n```bash\npython rag_pipeline/rag_query.py --question \"Опиши последовательность RAG в проекте\" --use-rag --top-k 4\n```",
+          "score": 0.6291256883932018
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00000",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "RAG Indexing Pipeline (для сдачи задания)",
+          "text": "# RAG Indexing Pipeline (для сдачи задания)\n\nЭтот модуль реализует требуемый пайплайн:\n\n- загрузка документов (`README`, код, `txt/md`)\n- **2 стратегии chunking**:\n  - `fixed_size` (фиксированный размер)\n  - `structural` (по структуре: заголовки markdown / сигнатуры классов и функций в коде)\n- генерация эмбеддингов через **RouterAI** (`openai/text-embedding-3-large`)\n- сохранение индекса в:\n  - `JSON`\n  - `SQLite`\n- метаданные для каждого чанка:\n  - `source`\n  - `title`\n  - `section`\n  - `chunk_id`\n\nДополнительно реализовано для задания по агенту:\n\n- подключение RAG к Android чат-агенту (режимы **с RAG / без RAG**)\n- отдельный Python-скрипт запроса в 2 режимах (`rag_query.py`)\n- автоматическая оценка качества на 10 контрольных вопросах (`eval.py`)\n- отчет сравнения качества ответов (`rag_vs_no_rag_eval.json`)",
+          "score": 0.5478580071664657
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00004",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Что будет на выходе",
+          "text": "## Что будет на выходе\n\n```\nrag_pipeline/output/\n├── comparison_report.json\n├── rag_vs_no_rag_eval.json\n├── fixed_size/\n│   ├── index.json\n│   └── index.sqlite\n└── structural/\n    ├── index.json\n    └── index.sqlite\n```\n\nТакже в `rag_pipeline/` добавлены:\n\n- `rag_query.py` — «вопрос → retrieval → объединение с вопросом → LLM»\n- `control_questions.json` — 10 контрольных вопросов с ожиданиями и expected sources\n- `eval.py` — прогон вопросов в двух режимах и расчет метрик",
+          "score": 0.5374676604753238
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00005",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Интеграция с чат-агентом Android",
+          "text": "## Интеграция с чат-агентом Android\n\nRAG подключен в агенте через `RagRepository`:\n\n- `question` берется как последнее user-сообщение\n- `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\n- `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками\n- в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\n\nПереключение режима:\n\n- UI `ChatScreen` (Switch) → `ChatViewModel.updateRagEnabled(...)`\n- далее `ChatAgent.setRagEnabled(...)`\n- если `ragEnabled = false`, запрос идет в модель без RAG-контекста",
+          "score": 0.5331566191264017
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": true,
+      "quotes_non_empty": true,
+      "is_unknown_mode": false,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Token overlap answer/quotes: 0.692"
+      ],
+      "error": null
+    },
+    {
+      "id": "Q3",
+      "question": "Откуда RagRepository берёт индекс чанков и какой путь используется по умолчанию?",
+      "answer": "## Ответ\nRagRepository загружает индекс чанков из JSON. В конструкторе заданы два пути по умолчанию:\n- assetPath: `rag/structural_index.json` (индекс из assets приложения)\n- filePath: `rag_pipeline/output/structural/index.json` (индекс как файл в результатах пайплайна)\n\n## Источники\n- source: app/src/main/java/ru/zis/prompting/agent/RagRepository.kt, section: class RagRepository(, chunk_id: struct_app_src_main_java_ru_zis_prompting_agent_ragrepository_kt_00000\n\n## Цитаты\n> \"class RagRepository(  \n>     private val context: Context,  \n>     private val api: RouterAiApi,  \n>     private val embeddingModel: String = \\\"openai/text-embedding-3-large\\\",  \n>     private val assetPath: String = \\\"rag/structural_index.json\\\",  \n>     private val filePath: String = \\\"rag_pipeline/output/structural/index.json\\\"  \n> ) {\"",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00000",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "RAG Indexing Pipeline (для сдачи задания)",
+          "text": "# RAG Indexing Pipeline (для сдачи задания)\n\nЭтот модуль реализует требуемый пайплайн:\n\n- загрузка документов (`README`, код, `txt/md`)\n- **2 стратегии chunking**:\n  - `fixed_size` (фиксированный размер)\n  - `structural` (по структуре: заголовки markdown / сигнатуры классов и функций в коде)\n- генерация эмбеддингов через **RouterAI** (`openai/text-embedding-3-large`)\n- сохранение индекса в:\n  - `JSON`\n  - `SQLite`\n- метаданные для каждого чанка:\n  - `source`\n  - `title`\n  - `section`\n  - `chunk_id`\n\nДополнительно реализовано для задания по агенту:\n\n- подключение RAG к Android чат-агенту (режимы **с RAG / без RAG**)\n- отдельный Python-скрипт запроса в 2 режимах (`rag_query.py`)\n- автоматическая оценка качества на 10 контрольных вопросах (`eval.py`)\n- отчет сравнения качества ответов (`rag_vs_no_rag_eval.json`)",
+          "score": 0.47693611731884455
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_agent_ragrepository_kt_00000",
+          "source": "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt",
+          "title": "RagRepository",
+          "section": "class RagRepository(",
+          "text": "class RagRepository(\n    private val context: Context,\n    private val api: RouterAiApi,\n    private val embeddingModel: String = \"openai/text-embedding-3-large\",\n    private val assetPath: String = \"rag/structural_index.json\",\n    private val filePath: String = \"rag_pipeline/output/structural/index.json\"\n) {\n    private val json = Json { ignoreUnknownKeys = true }\n    private val loadMutex = Mutex()\n\n    @Volatile\n    private var cachedChunks: List<RagIndexedChunk>? = null\n\n    suspend fun buildRagSystemMessage(question: String, topK: Int = 4): String? {\n        val query = question.trim()\n        if (query.isBlank()) return null\n\n        val hits = retrieveRelevantChunks(query = query, topK = topK)\n        if (hits.isEmpty()) return null\n\n        val contextText = hits.joinToString(\"\\n\\n\") { hit ->\n            buildString {\n                appendLine(\"source: ${hit.source}\")\n                appendLine(\"title: ${hit.title}\")\n                appendLine(\"section: ${hit.section}\")\n                appendLine(\"score: ${\"%.4f\".format(hit.score)}\")\n                appendLine(\"fragment:\")\n                append(hit.text)\n            }\n        }\n\n        return buildString {\n            appendLine(\"=== RAG КОНТЕКСТ ===\")\n            appendLine(\"Ниже — релевантные фрагменты базы знаний проекта.\")\n            appendLine(\"Опирайся на них при ответе, если это уместно.\")\n            appendLine(\"Если данных в фрагментах недостаточно — явно скажи об этом.\")\n            appendLine(\"По возможности ссылайся на source в ответе.\")\n            appendLine()\n            appendLine(\"Вопрос пользователя: $query\")\n            appendLine()\n            appendLine(\"Релевантные фрагменты:\")\n            appendLine(contextText)\n            append(\"=== КОНЕЦ RAG КОНТЕКСТА ===\")\n        }\n    }\n\n    suspend fun retrieveRelevantChunks(query: String, topK: Int = 4): List<RagChunkHit> = withContext(Dispatchers.IO) {\n        val chunks = ensureChunksLoaded()\n        if (chunks.isEmpty()) return@withContext emptyList()\n\n        val embeddingResp = api.createEmbeddings(\n            EmbeddingsRequest(\n                model = embeddingModel,\n                input = listOf(query),\n                encodi",
+          "score": 0.46888935892501
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00005",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Интеграция с чат-агентом Android",
+          "text": "## Интеграция с чат-агентом Android\n\nRAG подключен в агенте через `RagRepository`:\n\n- `question` берется как последнее user-сообщение\n- `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\n- `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками\n- в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\n\nПереключение режима:\n\n- UI `ChatScreen` (Switch) → `ChatViewModel.updateRagEnabled(...)`\n- далее `ChatAgent.setRagEnabled(...)`\n- если `ragEnabled = false`, запрос идет в модель без RAG-контекста",
+          "score": 0.46658534721740874
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00010",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Комментарий по требованию 20–30 страниц",
+          "text": "## Комментарий по требованию 20–30 страниц\n\nПо умолчанию индексируются:\n\n- `README.md`\n- `app/src/main/java` (весь код проекта)\n\nЭто значительно превышает 20–30 страниц в эквиваленте кода.",
+          "score": 0.39999321566444346
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": true,
+      "quotes_non_empty": true,
+      "is_unknown_mode": false,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Token overlap answer/quotes: 0.417"
+      ],
+      "error": null
+    },
+    {
+      "id": "Q4",
+      "question": "Какая embedding модель используется по умолчанию в Android и в Python пайплайне?",
+      "answer": "## Ответ\nНе знаю. В базе знаний нет достаточно релевантной информации по этому вопросу. Уточните запрос.\n\n## Источники\n- нет релевантных источников\n\n## Цитаты\n- нет релевантных цитат",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00003",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Запуск с RouterAI embeddings",
+          "text": "## Запуск с RouterAI embeddings\n\nПайплайн читает ключ из `local.properties` (в корне проекта):\n\n```bash\nROUTERAI_API_KEY=your_key_here\n```\n\nТакже поддерживается переменная окружения `ROUTERAI_API_KEY`.\n\nЗапуск:\n\n```bash\npython rag_pipeline/pipeline.py --embedding-model openai/text-embedding-3-large\n```\n\nДоп. параметры (если нужно):\n\n```bash\npython rag_pipeline/pipeline.py \\\n  --routerai-base-url https://routerai.ru/api/v1 \\\n  --local-properties-path local.properties\n```",
+          "score": 0.4901963767211551
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00002",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Запуск (демо без API ключа)",
+          "text": "## Запуск (демо без API ключа)\n\n```bash\npython rag_pipeline/pipeline.py --mock-embeddings\n```",
+          "score": 0.4002360682789872
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_data_embeddingsrequest_kt_00000",
+          "source": "app/src/main/java/ru/zis/prompting/data/EmbeddingsRequest.kt",
+          "title": "EmbeddingsRequest",
+          "section": "data class EmbeddingsRequest(",
+          "text": "data class EmbeddingsRequest(\n    val model: String,\n    val input: List<String>,\n    @SerialName(\"encoding_format\") val encodingFormat: String = \"float\"\n)",
+          "score": 0.3722486067875443
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": false,
+      "quotes_non_empty": false,
+      "is_unknown_mode": true,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Unknown-mode: смысловая проверка по цитатам пропущена."
+      ],
+      "error": null
+    },
+    {
+      "id": "Q5",
+      "question": "Какая LLM модель используется для ответов в чате по умолчанию?",
+      "answer": "## Ответ\nПо умолчанию в чате используется модель `openai/gpt-5.2`.\n\n## Источники\n- source: app/src/main/java/ru/zis/prompting/ChatViewModel.kt, section: class ChatViewModel(application: Application) : AndroidViewModel(application) {, chunk_id: struct_app_src_main_java_ru_zis_prompting_chatviewmodel_kt_00001\n\n## Цитаты\n> \"val model = \\\"openai/gpt-5.2\\\"\"",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00005",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Интеграция с чат-агентом Android",
+          "text": "## Интеграция с чат-агентом Android\n\nRAG подключен в агенте через `RagRepository`:\n\n- `question` берется как последнее user-сообщение\n- `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\n- `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками\n- в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\n\nПереключение режима:\n\n- UI `ChatScreen` (Switch) → `ChatViewModel.updateRagEnabled(...)`\n- далее `ChatAgent.setRagEnabled(...)`\n- если `ragEnabled = false`, запрос идет в модель без RAG-контекста",
+          "score": 0.43594608118319517
+        },
+        {
+          "chunk_id": "struct_readme_md_00002",
+          "source": "README.md",
+          "title": "Prompting — агент с памятью, инвариантами и MCP-инструментами",
+          "section": "1) Память агента",
+          "text": "### 1) Память агента\n\n- **Краткосрочная (Short-term):** текущий диалог в `ChatAgent`.\n- **Рабочая (Working):** цель/факты/открытые вопросы, хранится в `chat_sessions.workingMemoryJson`.\n- **Долговременная (Long-term):** профильные факты и договорённости, таблица `long_term_memory`.",
+          "score": 0.4247197661262911
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_chatviewmodel_kt_00001",
+          "source": "app/src/main/java/ru/zis/prompting/ChatViewModel.kt",
+          "title": "ChatViewModel",
+          "section": "class ChatViewModel(application: Application) : AndroidViewModel(application) {",
+          "text": "class ChatViewModel(application: Application) : AndroidViewModel(application) {\n\n    private val app: App = application as App\n\n    var inputText by mutableStateOf(\"\")\n    var temperature by mutableFloatStateOf(1.0f)\n\n    val messages = mutableStateListOf<UiMessage>()\n\n    var loading by mutableStateOf(false)\n    var error by mutableStateOf<String?>(null)\n    var ragEnabled by mutableStateOf(false)\n        private set\n\n    /** true пока идёт начальная загрузка истории из БД */\n    var historyLoading by mutableStateOf(true)\n        private set\n\n    val model = \"openai/gpt-5.2\"\n\n    private val api = RouterAiApiFactory.create()\n    private val agent = ChatAgent(\n        api = api,\n        model = model,\n        mcpRegistry = app.mcpRegistry,\n        ragRepository = app.ragRepository\n    )\n\n    private val repository: ChatRepository =\n        app.chatRepository\n\n    private val profileRepository: UserProfileRepository =\n        app.userProfileRepository\n\n    private val invariantRepository: InvariantRepository =\n        app.invariantRepository\n\n    var activeProfileName by mutableStateOf<String?>(null)\n        private set\n\n    var taskProfileLabel by mutableStateOf<String?>(null)\n        private set\n\n    var taskStageLabel by mutableStateOf<String?>(null)\n        private set\n\n    var taskProfileCode by mutableStateOf<String?>(null)\n        private set\n\n    var taskStageCode by mutableStateOf<String?>(null)\n        private set\n\n    init {\n        loadHistory()\n    }\n\n    // ─── Загрузка истории из БД ───────────────────────────────────────────\n\n    private fun loadHistory() {\n        viewModelScope.launch(Dispatchers.IO) {\n            val state = repository.load()\n            val longTermMemory = repository.loadLongTermMemory()\n            val activeProfile = profileRepository.getActive()\n            val invariants = invariantRepository.getAll()\n            withContext(Dispatchers.Main) {\n                if (state != null) {\n                    messages.addAll(state.uiMessages)\n                    agent.restoreHistory(state.agentHistory, state.summary)\n                    agent.restoreMemoryLayers(state.workingMemory, longTermMemory)\n                    refreshTask",
+          "score": 0.4081050749677923
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_db_chatrepository_kt_00002",
+          "source": "app/src/main/java/ru/zis/prompting/db/ChatRepository.kt",
+          "title": "ChatRepository",
+          "section": "data class ChatState(",
+          "text": "data class ChatState(\n    val uiMessages: List<UiMessage>,\n    val agentHistory: List<InputMessage>,\n    val summary: String?,\n    val workingMemory: WorkingMemory\n)\n\nprivate fun LongTermMemoryItem.toEntity() = LongTermMemoryEntity(\n    category = category,\n    content = content,\n    createdAt = createdAt\n)\n\nprivate fun LongTermMemoryEntity.toModel() = LongTermMemoryItem(\n    category = category,\n    content = content,\n    createdAt = createdAt\n)",
+          "score": 0.3942459784323585
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": true,
+      "quotes_non_empty": true,
+      "is_unknown_mode": false,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Token overlap answer/quotes: 0.333"
+      ],
+      "error": null
+    },
+    {
+      "id": "Q6",
+      "question": "Как в проекте считается релевантность чанков при поиске по RAG?",
+      "answer": "## Ответ\nРелевантность чанков при RAG-поиске в проекте считается по cosine similarity: метод `retrieveRelevantChunks(...)` выбирает top-k наиболее релевантных чанков на основе косинусного сходства.\n\n## Источники\n- source: rag_pipeline/README.md, section: Интеграция с чат-агентом Android, chunk_id: struct_rag_pipeline_readme_md_00005\n\n## Цитаты\n> \"`retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\"",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00005",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Интеграция с чат-агентом Android",
+          "text": "## Интеграция с чат-агентом Android\n\nRAG подключен в агенте через `RagRepository`:\n\n- `question` берется как последнее user-сообщение\n- `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\n- `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками\n- в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\n\nПереключение режима:\n\n- UI `ChatScreen` (Switch) → `ChatViewModel.updateRagEnabled(...)`\n- далее `ChatAgent.setRagEnabled(...)`\n- если `ragEnabled = false`, запрос идет в модель без RAG-контекста",
+          "score": 0.47997745146300347
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00008",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Автооценка качества (RAG vs no-RAG)",
+          "text": "## Автооценка качества (RAG vs no-RAG)\n\nЗапуск:\n\n```bash\npython rag_pipeline/eval.py \\\n  --questions rag_pipeline/control_questions.json \\\n  --index rag_pipeline/output/structural/index.json \\\n  --out rag_pipeline/output/rag_vs_no_rag_eval.json\n```\n\nЧто делает `eval.py`:\n\n1. Для каждого из 10 вопросов получает 2 ответа:\n   - `without_rag`\n   - `with_rag`\n2. Сохраняет retrieved hits (для RAG-режима)\n3. Считает простую метрику `keyword_score`\n4. Считает `source_coverage` по expected sources\n5. Формирует общий summary с дельтой качества\n\nПример полученного результата в этом проекте:\n\n- `avg_keyword_score_without_rag = 0.278`\n- `avg_keyword_score_with_rag = 0.398`\n- `avg_delta = +0.12`\n\nТо есть в среднем режим с RAG дал более релевантные ответы по контрольному набору.",
+          "score": 0.47734674352917233
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00006",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Запуск сравнения «без RAG / с RAG» для одного вопроса",
+          "text": "## Запуск сравнения «без RAG / с RAG» для одного вопроса\n\nБез RAG:\n\n```bash\npython rag_pipeline/rag_query.py --question \"Опиши последовательность RAG в проекте\"\n```\n\nС RAG:\n\n```bash\npython rag_pipeline/rag_query.py --question \"Опиши последовательность RAG в проекте\" --use-rag --top-k 4\n```",
+          "score": 0.46816673148695565
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00000",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "RAG Indexing Pipeline (для сдачи задания)",
+          "text": "# RAG Indexing Pipeline (для сдачи задания)\n\nЭтот модуль реализует требуемый пайплайн:\n\n- загрузка документов (`README`, код, `txt/md`)\n- **2 стратегии chunking**:\n  - `fixed_size` (фиксированный размер)\n  - `structural` (по структуре: заголовки markdown / сигнатуры классов и функций в коде)\n- генерация эмбеддингов через **RouterAI** (`openai/text-embedding-3-large`)\n- сохранение индекса в:\n  - `JSON`\n  - `SQLite`\n- метаданные для каждого чанка:\n  - `source`\n  - `title`\n  - `section`\n  - `chunk_id`\n\nДополнительно реализовано для задания по агенту:\n\n- подключение RAG к Android чат-агенту (режимы **с RAG / без RAG**)\n- отдельный Python-скрипт запроса в 2 режимах (`rag_query.py`)\n- автоматическая оценка качества на 10 контрольных вопросах (`eval.py`)\n- отчет сравнения качества ответов (`rag_vs_no_rag_eval.json`)",
+          "score": 0.4603131920470727
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": true,
+      "quotes_non_empty": true,
+      "is_unknown_mode": false,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Token overlap answer/quotes: 0.353"
+      ],
+      "error": null
+    },
+    {
+      "id": "Q7",
+      "question": "Какие стратегии chunking реализованы в пайплайне и где сравнивается их статистика?",
+      "answer": "## Ответ\nВ пайплайне реализованы 2 стратегии chunking: `fixed_size` (фиксированный размер) и `structural` (по структуре: заголовки markdown / сигнатуры классов и функций в коде).\n\nСтатистика этих стратегий сравнивается в скрипте `rag_pipeline/compare.py` (там считается количество чанков, средний/мин/макс размер, число уникальных источников и секций, и формируется консольный блок `=== СРАВНЕНИЕ СТРАТЕГИЙ CHUNKING ===`). Также в `rag_pipeline/README.md` указано, что этот блок виден в консольном выводе `pipeline.py`, и что статистика лежит в `comparison_report.json`.\n\n## Источники\n- source: rag_pipeline/README.md, section: RAG Indexing Pipeline (для сдачи задания), chunk_id: struct_rag_pipeline_readme_md_00000\n- source: rag_pipeline/compare.py, section: full_document, chunk_id: struct_rag_pipeline_compare_py_00000\n- source: rag_pipeline/README.md, section: Что показать при сдаче, chunk_id: struct_rag_pipeline_readme_md_00009\n\n## Цитаты\n> \"- **2 стратегии chunking**:\\n  - `fixed_size` (фиксированный размер)\\n  - `structural` (по структуре: заголовки markdown / сигнатуры классов и функций в коде)\"\n\n> \"=== СРАВНЕНИЕ СТРАТЕГИЙ CHUNKING ===\"\n\n> \"def calculate_stats(strategy: str, chunks: list[Chunk]) -> StrategyStats:\"\n\n> \"1. Консольный вывод `pipeline.py` с блоком `=== СРАВНЕНИЕ СТРАТЕГИЙ CHUNKING ===`\\n2. Файл `comparison_report.json` (там статистика и estimated pages)\"",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00000",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "RAG Indexing Pipeline (для сдачи задания)",
+          "text": "# RAG Indexing Pipeline (для сдачи задания)\n\nЭтот модуль реализует требуемый пайплайн:\n\n- загрузка документов (`README`, код, `txt/md`)\n- **2 стратегии chunking**:\n  - `fixed_size` (фиксированный размер)\n  - `structural` (по структуре: заголовки markdown / сигнатуры классов и функций в коде)\n- генерация эмбеддингов через **RouterAI** (`openai/text-embedding-3-large`)\n- сохранение индекса в:\n  - `JSON`\n  - `SQLite`\n- метаданные для каждого чанка:\n  - `source`\n  - `title`\n  - `section`\n  - `chunk_id`\n\nДополнительно реализовано для задания по агенту:\n\n- подключение RAG к Android чат-агенту (режимы **с RAG / без RAG**)\n- отдельный Python-скрипт запроса в 2 режимах (`rag_query.py`)\n- автоматическая оценка качества на 10 контрольных вопросах (`eval.py`)\n- отчет сравнения качества ответов (`rag_vs_no_rag_eval.json`)",
+          "score": 0.437288711638419
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_compare_py_00000",
+          "source": "rag_pipeline/compare.py",
+          "title": "compare",
+          "section": "full_document",
+          "text": "from __future__ import annotations\n\nfrom dataclasses import asdict, dataclass\nfrom statistics import mean\n\nfrom chunkers import Chunk\n\n\n@dataclass\nclass StrategyStats:\n    strategy: str\n    chunks_count: int\n    avg_chars: float\n    min_chars: int\n    max_chars: int\n    unique_sources: int\n    unique_sections: int\n\n    def to_dict(self) -> dict:\n        return asdict(self)\n\n\ndef calculate_stats(strategy: str, chunks: list[Chunk]) -> StrategyStats:\n    if not chunks:\n        return StrategyStats(\n            strategy=strategy,\n            chunks_count=0,\n            avg_chars=0.0,\n            min_chars=0,\n            max_chars=0,\n            unique_sources=0,\n            unique_sections=0,\n        )\n\n    sizes = [len(c.text) for c in chunks]\n    return StrategyStats(\n        strategy=strategy,\n        chunks_count=len(chunks),\n        avg_chars=round(mean(sizes), 2),\n        min_chars=min(sizes),\n        max_chars=max(sizes),\n        unique_sources=len({c.source for c in chunks}),\n        unique_sections=len({c.section for c in chunks}),\n    )\n\n\ndef render_comparison_console(fixed: StrategyStats, structural: StrategyStats) -> str:\n    lines = []\n    lines.append(\"=== СРАВНЕНИЕ СТРАТЕГИЙ CHUNKING ===\")\n    lines.append(\"\")\n\n    lines.append(\"Стратегия 1: fixed_size\")\n    lines.append(f\"  Чанков: {fixed.chunks_count}\")\n    lines.append(f\"  Средний размер: {fixed.avg_chars} chars\")\n    lines.append(f\"  Мин/Макс: {fixed.min_chars} / {fixed.max_chars}\")\n    lines.append(f\"  Источников: {fixed.unique_sources}\")\n    lines.append(f\"  Уникальных секций: {fixed.unique_sections}\")\n    lines.append(\"\")\n\n    lines.append(\"Стратегия 2: structural\")\n    lines.append(f\"  Чанков: {structural.chunks_count}\")\n    lines.append(f\"  Средний размер: {structural.avg_chars} chars\")\n    lines.append(f\"  Мин/Макс: {structural.min_chars} / {structural.max_chars}\")\n    lines.append(f\"  Источников: {structural.unique_sources}\")\n    lines.append(f\"  Уникальных секций: {structural.unique_sections}\")\n    lines.append(\"\")\n\n    if fixed.chunks_count > structural.chunks_count:\n        lines.append(\"Вывод: fixed_size даёт больше, но более мелких фрагментов.\")\n    else:\n        lines.append(\"Вывод: s",
+          "score": 0.4358155497225532
+        },
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00009",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Что показать при сдаче",
+          "text": "## Что показать при сдаче\n\n1. Консольный вывод `pipeline.py` с блоком `=== СРАВНЕНИЕ СТРАТЕГИЙ CHUNKING ===`\n2. Файл `comparison_report.json` (там статистика и estimated pages)\n3. Любой из индексов (`fixed_size/index.json`, `structural/index.json`) — показать, что у чанков есть эмбеддинг и метаданные.\n4. Переключение режима RAG в Android-чате (сравнение ответа в 2 режимах на одном вопросе)\n5. Файл `control_questions.json` (10 вопросов + ожидания + expected sources)\n6. Файл `rag_vs_no_rag_eval.json` с итоговой сводкой качества",
+          "score": 0.43485000817809355
+        },
+        {
+          "chunk_id": "struct_readme_md_00009",
+          "source": "README.md",
+          "title": "Prompting — агент с памятью, инвариантами и MCP-инструментами",
+          "section": "Длинный флоу с несколькими MCP-серверами/инструментами",
+          "text": "## Длинный флоу с несколькими MCP-серверами/инструментами\n\nСценарий для проверки маршрутизации и порядка вызовов:\n\n1. Пользователь задаёт список городов (через запятую) на экране Pipeline.\n2. `weather_pipeline` запускает этапы строго по порядку:\n   - шаг 1: `geocode_address` для каждого города,\n   - шаг 2: `sunrise_sunset` по полученным координатам,\n   - шаг 3: `weather_multi_fetch` по городам,\n   - шаг 4: `weather_save_report` (сохранение отчёта в БД).\n3. Каждый шаг отображается в UI со статусами `PENDING/RUNNING/DONE/ERROR`.\n4. В сообщениях этапов показываются счётчики формата: `успешно X из Y (ошибок: Z)`.\n5. Итоговый отчёт формируется по исходному списку городов и содержит:\n   - координаты,\n   - рассвет/закат/золотой час,\n   - погоду,\n   - диагностику ошибок по каждому источнику (`geocoding`, `sunrise/sunset`, `weather`) при наличии.",
+          "score": 0.36206940601585985
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": true,
+      "quotes_non_empty": true,
+      "is_unknown_mode": false,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Token overlap answer/quotes: 0.429"
+      ],
+      "error": null
+    },
+    {
+      "id": "Q8",
+      "question": "Какой формат метаданных хранится у чанков в index.json?",
+      "answer": "## Ответ\nНе знаю. В базе знаний нет достаточно релевантной информации по этому вопросу. Уточните запрос.\n\n## Источники\n- нет релевантных источников\n\n## Цитаты\n- нет релевантных цитат",
+      "hits": [],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": false,
+      "quotes_non_empty": false,
+      "is_unknown_mode": true,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Unknown-mode: смысловая проверка по цитатам пропущена."
+      ],
+      "error": null
+    },
+    {
+      "id": "Q9",
+      "question": "Что делает метод buildContextMessages в ChatAgent и где в нём подключается RAG?",
+      "answer": "## Ответ\n`ChatAgent.buildContextMessages()` формирует список сообщений-контекстов для запроса в модель. В частности, при включённом RAG он берёт вопрос как последнее user-сообщение, через `RagRepository` находит top-k релевантных чанков и собирает из них system-контекст (`buildRagSystemMessage(...)`), после чего добавляет этот system-контекст **перед** user-сообщением. Если `ragEnabled = false`, запрос отправляется в модель без RAG-контекста.\n\n## Источники\n- source: rag_pipeline/README.md, section: Интеграция с чат-агентом Android, chunk_id: struct_rag_pipeline_readme_md_00005\n- source: app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt, section: class ChatAgent(, chunk_id: struct_app_src_main_java_ru_zis_prompting_agent_chatagent_kt_00000\n- source: app/src/main/java/ru/zis/prompting/agent/RagRepository.kt, section: class RagRepository(, chunk_id: struct_app_src_main_java_ru_zis_prompting_agent_ragrepository_kt_00000\n\n## Цитаты\n> \"RAG подключен в агенте через `RagRepository`:\"\n> \"- `question` берется как последнее user-сообщение\"\n> \"- `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\"\n> \"- `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками\"\n> \"- в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\"\n\n> \"private val ragRepository: RagRepository? = null\"\n\n> \"private var ragEnabled: Boolean = false\"\n\n> \"suspend fun buildRagSystemMessage(question: String, topK: Int = 4): String? {\"\n> \"        val hits = retrieveRelevantChunks(query = query, topK = topK)\"\n> \"        if (hits.isEmpty()) return null\"",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00005",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Интеграция с чат-агентом Android",
+          "text": "## Интеграция с чат-агентом Android\n\nRAG подключен в агенте через `RagRepository`:\n\n- `question` берется как последнее user-сообщение\n- `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\n- `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками\n- в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\n\nПереключение режима:\n\n- UI `ChatScreen` (Switch) → `ChatViewModel.updateRagEnabled(...)`\n- далее `ChatAgent.setRagEnabled(...)`\n- если `ragEnabled = false`, запрос идет в модель без RAG-контекста",
+          "score": 0.6783645683809312
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_agent_chatagent_kt_00000",
+          "source": "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt",
+          "title": "ChatAgent",
+          "section": "class ChatAgent(",
+          "text": "class ChatAgent(\n    private val api: RouterAiApi,\n    private val model: String = \"openai/gpt-5.2\",\n    private val maxHistoryMessages: Int = 40,\n    private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },\n    private val mcpRegistry: McpRegistry = McpRegistry.default(),\n    private val ragRepository: RagRepository? = null\n) {\n    private val fullHistory = mutableListOf<InputMessage>()\n    private var workingMemory: WorkingMemory = WorkingMemory()\n    private val longTermMemory = mutableListOf<LongTermMemoryItem>()\n\n    private var summary: String? = null\n    private var summarizedMessagesCount: Int = 0\n    private var activeProfile: UserProfile? = null\n    private val invariants = mutableListOf<InvariantItem>()\n\n    private var cumulativeInputTokensSum: Int = 0\n    private var cumulativeOutputTokensSum: Int = 0\n    private var hasCumulativeTokens: Boolean = false\n    private var ragEnabled: Boolean = false\n    private val json = Json { ignoreUnknownKeys = true }\n\n    companion object {\n        const val RECENT_MESSAGES_COUNT = 5\n        const val SUMMARY_BATCH_SIZE = 10\n        private const val SUMMARY_ROLE = \"system\"\n        private const val MCP_TOOL_CALL_MAX_LOOPS = 2\n    }",
+          "score": 0.5139203001721039
+        },
+        {
+          "chunk_id": "struct_readme_md_00002",
+          "source": "README.md",
+          "title": "Prompting — агент с памятью, инвариантами и MCP-инструментами",
+          "section": "1) Память агента",
+          "text": "### 1) Память агента\n\n- **Краткосрочная (Short-term):** текущий диалог в `ChatAgent`.\n- **Рабочая (Working):** цель/факты/открытые вопросы, хранится в `chat_sessions.workingMemoryJson`.\n- **Долговременная (Long-term):** профильные факты и договорённости, таблица `long_term_memory`.",
+          "score": 0.4838445418690382
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_agent_ragrepository_kt_00000",
+          "source": "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt",
+          "title": "RagRepository",
+          "section": "class RagRepository(",
+          "text": "class RagRepository(\n    private val context: Context,\n    private val api: RouterAiApi,\n    private val embeddingModel: String = \"openai/text-embedding-3-large\",\n    private val assetPath: String = \"rag/structural_index.json\",\n    private val filePath: String = \"rag_pipeline/output/structural/index.json\"\n) {\n    private val json = Json { ignoreUnknownKeys = true }\n    private val loadMutex = Mutex()\n\n    @Volatile\n    private var cachedChunks: List<RagIndexedChunk>? = null\n\n    suspend fun buildRagSystemMessage(question: String, topK: Int = 4): String? {\n        val query = question.trim()\n        if (query.isBlank()) return null\n\n        val hits = retrieveRelevantChunks(query = query, topK = topK)\n        if (hits.isEmpty()) return null\n\n        val contextText = hits.joinToString(\"\\n\\n\") { hit ->\n            buildString {\n                appendLine(\"source: ${hit.source}\")\n                appendLine(\"title: ${hit.title}\")\n                appendLine(\"section: ${hit.section}\")\n                appendLine(\"score: ${\"%.4f\".format(hit.score)}\")\n                appendLine(\"fragment:\")\n                append(hit.text)\n            }\n        }\n\n        return buildString {\n            appendLine(\"=== RAG КОНТЕКСТ ===\")\n            appendLine(\"Ниже — релевантные фрагменты базы знаний проекта.\")\n            appendLine(\"Опирайся на них при ответе, если это уместно.\")\n            appendLine(\"Если данных в фрагментах недостаточно — явно скажи об этом.\")\n            appendLine(\"По возможности ссылайся на source в ответе.\")\n            appendLine()\n            appendLine(\"Вопрос пользователя: $query\")\n            appendLine()\n            appendLine(\"Релевантные фрагменты:\")\n            appendLine(contextText)\n            append(\"=== КОНЕЦ RAG КОНТЕКСТА ===\")\n        }\n    }\n\n    suspend fun retrieveRelevantChunks(query: String, topK: Int = 4): List<RagChunkHit> = withContext(Dispatchers.IO) {\n        val chunks = ensureChunksLoaded()\n        if (chunks.isEmpty()) return@withContext emptyList()\n\n        val embeddingResp = api.createEmbeddings(\n            EmbeddingsRequest(\n                model = embeddingModel,\n                input = listOf(query),\n                encodi",
+          "score": 0.4497841465631928
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": true,
+      "quotes_non_empty": true,
+      "is_unknown_mode": false,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Token overlap answer/quotes: 0.475"
+      ],
+      "error": null
+    },
+    {
+      "id": "Q10",
+      "question": "Где и как создаётся RagRepository в Android приложении?",
+      "answer": "## Ответ\n`RagRepository` создаётся на уровне `Application` в классе `App` как ленивое (`by lazy`) свойство `ragRepository`. При создании в него передаётся `context = this` (контекст приложения) и `api`, который получается через `RouterAiApiFactory.create()`.  \nДалее `RagRepository` используется чат-агентом для RAG: он извлекает релевантные чанки (`retrieveRelevantChunks(...)`) и собирает system-сообщение с контекстом (`buildRagSystemMessage(...)`), которое добавляется перед user-сообщением.\n\n## Источники\n- source: app/src/main/java/ru/zis/prompting/App.kt, section: class App : Application() {, chunk_id: struct_app_src_main_java_ru_zis_prompting_app_kt_00000\n- source: rag_pipeline/README.md, section: Интеграция с чат-агентом Android, chunk_id: struct_rag_pipeline_readme_md_00005\n\n## Цитаты\n> \"val ragRepository by lazy {  \n>         RagRepository(  \n>             context = this,  \n>             api = ru.zis.prompting.network.RouterAiApiFactory.create()  \n>         )  \n>     }\"\n\n> \"RAG подключен в агенте через `RagRepository`:\"",
+      "hits": [
+        {
+          "chunk_id": "struct_rag_pipeline_readme_md_00005",
+          "source": "rag_pipeline/README.md",
+          "title": "RAG Indexing Pipeline (для сдачи задания)",
+          "section": "Интеграция с чат-агентом Android",
+          "text": "## Интеграция с чат-агентом Android\n\nRAG подключен в агенте через `RagRepository`:\n\n- `question` берется как последнее user-сообщение\n- `retrieveRelevantChunks(...)` ищет top-k релевантных чанков по cosine similarity\n- `buildRagSystemMessage(...)` собирает system-контекст с найденными источниками\n- в `ChatAgent.buildContextMessages()` этот system-контекст добавляется перед user-сообщением\n\nПереключение режима:\n\n- UI `ChatScreen` (Switch) → `ChatViewModel.updateRagEnabled(...)`\n- далее `ChatAgent.setRagEnabled(...)`\n- если `ragEnabled = false`, запрос идет в модель без RAG-контекста",
+          "score": 0.6242914940856963
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_agent_ragrepository_kt_00000",
+          "source": "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt",
+          "title": "RagRepository",
+          "section": "class RagRepository(",
+          "text": "class RagRepository(\n    private val context: Context,\n    private val api: RouterAiApi,\n    private val embeddingModel: String = \"openai/text-embedding-3-large\",\n    private val assetPath: String = \"rag/structural_index.json\",\n    private val filePath: String = \"rag_pipeline/output/structural/index.json\"\n) {\n    private val json = Json { ignoreUnknownKeys = true }\n    private val loadMutex = Mutex()\n\n    @Volatile\n    private var cachedChunks: List<RagIndexedChunk>? = null\n\n    suspend fun buildRagSystemMessage(question: String, topK: Int = 4): String? {\n        val query = question.trim()\n        if (query.isBlank()) return null\n\n        val hits = retrieveRelevantChunks(query = query, topK = topK)\n        if (hits.isEmpty()) return null\n\n        val contextText = hits.joinToString(\"\\n\\n\") { hit ->\n            buildString {\n                appendLine(\"source: ${hit.source}\")\n                appendLine(\"title: ${hit.title}\")\n                appendLine(\"section: ${hit.section}\")\n                appendLine(\"score: ${\"%.4f\".format(hit.score)}\")\n                appendLine(\"fragment:\")\n                append(hit.text)\n            }\n        }\n\n        return buildString {\n            appendLine(\"=== RAG КОНТЕКСТ ===\")\n            appendLine(\"Ниже — релевантные фрагменты базы знаний проекта.\")\n            appendLine(\"Опирайся на них при ответе, если это уместно.\")\n            appendLine(\"Если данных в фрагментах недостаточно — явно скажи об этом.\")\n            appendLine(\"По возможности ссылайся на source в ответе.\")\n            appendLine()\n            appendLine(\"Вопрос пользователя: $query\")\n            appendLine()\n            appendLine(\"Релевантные фрагменты:\")\n            appendLine(contextText)\n            append(\"=== КОНЕЦ RAG КОНТЕКСТА ===\")\n        }\n    }\n\n    suspend fun retrieveRelevantChunks(query: String, topK: Int = 4): List<RagChunkHit> = withContext(Dispatchers.IO) {\n        val chunks = ensureChunksLoaded()\n        if (chunks.isEmpty()) return@withContext emptyList()\n\n        val embeddingResp = api.createEmbeddings(\n            EmbeddingsRequest(\n                model = embeddingModel,\n                input = listOf(query),\n                encodi",
+          "score": 0.5110163561433285
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_app_kt_00000",
+          "source": "app/src/main/java/ru/zis/prompting/App.kt",
+          "title": "App",
+          "section": "class App : Application() {",
+          "text": "class App : Application() {\n\n    override fun onCreate() {\n        super.onCreate()\n        WeatherNotifications.createChannel(this)\n    }\n\n    val database by lazy { AppDatabase.getInstance(this) }\n\n    val chatRepository by lazy {\n        ChatRepository(\n            chatDao = database.chatSessionDao(),\n            longTermDao = database.longTermMemoryDao()\n        )\n    }\n\n    val userProfileRepository by lazy {\n        UserProfileRepository(\n            dao = database.userProfileDao()\n        )\n    }\n\n    val invariantRepository by lazy {\n        InvariantRepository(\n            dao = database.invariantDao()\n        )\n    }\n\n    val weatherRepository by lazy {\n        WeatherRepository(\n            dao = database.weatherRecordDao()\n        )\n    }\n\n    val mcpRegistry by lazy {\n        McpRegistry.default(\n            context = this,\n            weatherRepository = weatherRepository\n        )\n    }\n\n    val ragRepository by lazy {\n        RagRepository(\n            context = this,\n            api = ru.zis.prompting.network.RouterAiApiFactory.create()\n        )\n    }\n}",
+          "score": 0.4400999910885949
+        },
+        {
+          "chunk_id": "struct_app_src_main_java_ru_zis_prompting_db_chatrepository_kt_00000",
+          "source": "app/src/main/java/ru/zis/prompting/db/ChatRepository.kt",
+          "title": "ChatRepository",
+          "section": "class ChatRepository(",
+          "text": "class ChatRepository(\n    private val chatDao: ChatSessionDao,\n    private val longTermDao: LongTermMemoryDao\n) {\n\n    private val json = Json { ignoreUnknownKeys = true }\n\n    /** Сохраняет текущее состояние UI-сообщений, истории агента, summary и рабочей памяти. */\n    suspend fun save(\n        uiMessages: List<UiMessage>,\n        agentHistory: List<InputMessage>,\n        summary: String?,\n        workingMemory: WorkingMemory\n    ) {\n        val entity = ChatSessionEntity(\n            sessionId = 1,\n            messagesJson = json.encodeToString(uiMessages.map { it.toSerializable() }),\n            agentHistoryJson = json.encodeToString(agentHistory),\n            summaryJson = summary.orEmpty(),\n            workingMemoryJson = json.encodeToString(workingMemory),\n            updatedAt = System.currentTimeMillis()\n        )\n        chatDao.upsert(entity)\n    }\n\n    /** Полностью пересохраняет долговременную память. */\n    suspend fun saveLongTermMemory(items: List<LongTermMemoryItem>) {\n        longTermDao.clearAll()\n        if (items.isEmpty()) return\n        longTermDao.insertAll(items.map { it.toEntity() })\n    }\n\n    /** Загружает сохранённое состояние, или null если ничего нет. */\n    suspend fun load(): ChatState? {\n        val entity = chatDao.loadCurrent() ?: return null\n        return try {\n            val uiMessages = json\n                .decodeFromString<List<UiMessageSerializable>>(entity.messagesJson)\n                .map { it.toUiMessage() }\n            val agentHistory = json\n                .decodeFromString<List<InputMessage>>(entity.agentHistoryJson)\n            val workingMemory = runCatching {\n                json.decodeFromString<WorkingMemory>(entity.workingMemoryJson)\n            }.getOrElse { WorkingMemory() }\n\n            ChatState(\n                uiMessages = uiMessages,\n                agentHistory = agentHistory,\n                summary = entity.summaryJson.takeIf { it.isNotBlank() },\n                workingMemory = workingMemory\n            )\n        } catch (e: Exception) {\n            null\n        }\n    }\n\n    suspend fun loadLongTermMemory(): List<LongTermMemoryItem> =\n        longTermDao.getAll().map { it.toModel() }\n\n    /** Уд",
+          "score": 0.43667988697296084
+        }
+      ],
+      "has_sources_section": true,
+      "has_quotes_section": true,
+      "sources_non_empty": true,
+      "quotes_non_empty": true,
+      "is_unknown_mode": false,
+      "meaning_matches_quotes": true,
+      "notes": [
+        "Token overlap answer/quotes: 0.220"
+      ],
+      "error": null
+    }
+  ]
+}

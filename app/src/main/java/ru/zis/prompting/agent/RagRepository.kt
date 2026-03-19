@@ -23,6 +23,20 @@ class RagRepository(
     private val assetPath: String = "rag/structural_index.json",
     private val filePath: String = "rag_pipeline/output/structural/index.json"
 ) {
+    companion object {
+        private const val LOW_RELEVANCE_THRESHOLD = 0.25f
+        private const val LOW_RELEVANCE_FALLBACK = """
+## Ответ
+Не знаю. В базе знаний нет достаточно релевантной информации по этому вопросу. Уточните запрос.
+
+## Источники
+- нет релевантных источников
+
+## Цитаты
+- нет релевантных цитат
+"""
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
     private val loadMutex = Mutex()
 
@@ -34,10 +48,33 @@ class RagRepository(
         if (query.isBlank()) return null
 
         val hits = retrieveRelevantChunks(query = query, topK = topK)
-        if (hits.isEmpty()) return null
+        if (hits.isEmpty()) {
+            return buildString {
+                appendLine("=== RAG КОНТЕКСТ ===")
+                appendLine("Контекст не найден. Верни строго следующий ответ без изменений:")
+                appendLine()
+                appendLine(LOW_RELEVANCE_FALLBACK.trim())
+                appendLine()
+                append("=== КОНЕЦ RAG КОНТЕКСТА ===")
+            }
+        }
+
+        val maxScore = hits.maxOfOrNull { it.score } ?: 0f
+        if (maxScore < LOW_RELEVANCE_THRESHOLD) {
+            return buildString {
+                appendLine("=== RAG КОНТЕКСТ ===")
+                appendLine("Контекст слишком слабый (maxScore=${"%.4f".format(maxScore)} < $LOW_RELEVANCE_THRESHOLD).")
+                appendLine("Верни строго следующий ответ без изменений:")
+                appendLine()
+                appendLine(LOW_RELEVANCE_FALLBACK.trim())
+                appendLine()
+                append("=== КОНЕЦ RAG КОНТЕКСТА ===")
+            }
+        }
 
         val contextText = hits.joinToString("\n\n") { hit ->
             buildString {
+                appendLine("chunk_id: ${hit.chunkId}")
                 appendLine("source: ${hit.source}")
                 appendLine("title: ${hit.title}")
                 appendLine("section: ${hit.section}")
@@ -50,11 +87,28 @@ class RagRepository(
         return buildString {
             appendLine("=== RAG КОНТЕКСТ ===")
             appendLine("Ниже — релевантные фрагменты базы знаний проекта.")
-            appendLine("Опирайся на них при ответе, если это уместно.")
-            appendLine("Если данных в фрагментах недостаточно — явно скажи об этом.")
-            appendLine("По возможности ссылайся на source в ответе.")
+            appendLine("Опирайся только на них при ответе.")
+            appendLine("")
+            appendLine("ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА:")
+            appendLine("## Ответ")
+            appendLine("<краткий и точный ответ>")
+            appendLine("")
+            appendLine("## Источники")
+            appendLine("- source: <путь>, section: <section>, chunk_id: <chunk_id>")
+            appendLine("- ...")
+            appendLine("")
+            appendLine("## Цитаты")
+            appendLine("> \"<дословный фрагмент из найденных чанков>\"")
+            appendLine("> ...")
+            appendLine("")
+            appendLine("Правила:")
+            appendLine("1) Источники и цитаты — обязательны в каждом ответе.")
+            appendLine("2) Секции 'Источники' и 'Цитаты' должны ссылаться только на реально использованные чанки.")
+            appendLine("3) Смысл секции 'Ответ' должен соответствовать приведённым цитатам.")
+            appendLine("4) Если данных недостаточно — ответь строго фразой: 'Не знаю. В базе знаний нет достаточно релевантной информации по этому вопросу. Уточните запрос.'")
             appendLine()
             appendLine("Вопрос пользователя: $query")
+            appendLine("Максимальная релевантность: ${"%.4f".format(maxScore)}")
             appendLine()
             appendLine("Релевантные фрагменты:")
             appendLine(contextText)
