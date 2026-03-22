@@ -36,6 +36,14 @@ class ChatAgent(
     private var ragEnabled: Boolean = false
     private val json = Json { ignoreUnknownKeys = true }
 
+    private val clarificationMarkers = listOf(
+        "уточняю", "то есть", "имею в виду", "я имею в виду", "конкретно", "речь идёт о", "речь идет о"
+    )
+
+    private val constraintMarkers = listOf(
+        "только", "не использовать", "запрещено", "нельзя", "обязательно", "ограничение", "без "
+    )
+
     companion object {
         const val RECENT_MESSAGES_COUNT = 5
         const val SUMMARY_BATCH_SIZE = 10
@@ -293,10 +301,7 @@ class ChatAgent(
         val hasWeatherIntent = weatherWords.any { lower.contains(it) }
         val hasSchedulerIntent = schedulerWords.any { lower.contains(it) }
         if (!hasSchedulerIntent) return null
-        if (!hasWeatherIntent) {
-            val genericNotificationOnly = listOf("уведом", "напомин", "кажды", "период").any { lower.contains(it) }
-            if (!genericNotificationOnly) return null
-        }
+        if (!hasWeatherIntent) return null
 
         val action = when {
             lower.contains("останов") || lower.contains("выключ") || lower.contains("stop") -> "stop"
@@ -538,6 +543,8 @@ class ChatAgent(
 
     private fun buildWorkingSystemMessage(): InputMessage? {
         if (workingMemory.goal.isNullOrBlank() &&
+            workingMemory.clarifications.isEmpty() &&
+            workingMemory.constraints.isEmpty() &&
             workingMemory.keyFacts.isEmpty() &&
             workingMemory.openQuestions.isEmpty()
         ) return null
@@ -546,6 +553,14 @@ class ChatAgent(
             appendLine("Рабочая память текущей задачи:")
             workingMemory.goal?.takeIf { it.isNotBlank() }?.let {
                 appendLine("Цель: $it")
+            }
+            if (workingMemory.clarifications.isNotEmpty()) {
+                appendLine("Уточнения пользователя:")
+                workingMemory.clarifications.forEach { appendLine("- $it") }
+            }
+            if (workingMemory.constraints.isNotEmpty()) {
+                appendLine("Ограничения и зафиксированные термины:")
+                workingMemory.constraints.forEach { appendLine("- $it") }
             }
             if (workingMemory.keyFacts.isNotEmpty()) {
                 appendLine("Ключевые данные:")
@@ -594,7 +609,25 @@ class ChatAgent(
             return
         }
 
-        val goal = recentUsers.last().take(240)
+        val goal = recentUsers.first().take(240)
+
+        val clarifications = recentUsers
+            .filter { text ->
+                val lower = text.lowercase()
+                clarificationMarkers.any { marker -> lower.contains(marker) }
+            }
+            .takeLast(6)
+            .map { it.replace("\n", " ").trim() }
+            .distinct()
+
+        val constraints = recentUsers
+            .filter { text ->
+                val lower = text.lowercase()
+                constraintMarkers.any { marker -> lower.contains(marker) }
+            }
+            .takeLast(6)
+            .map { it.replace("\n", " ").trim() }
+            .distinct()
 
         val keyFacts = recentUsers
             .takeLast(4)
@@ -608,6 +641,8 @@ class ChatAgent(
 
         workingMemory = WorkingMemory(
             goal = goal,
+            clarifications = clarifications,
+            constraints = constraints,
             keyFacts = keyFacts,
             openQuestions = openQuestions,
             taskProfileType = preservedProfile,

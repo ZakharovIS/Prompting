@@ -143,12 +143,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun workingMemoryDump(): String {
         val wm = agent.snapshotWorkingMemory()
-        if (wm.goal.isNullOrBlank() && wm.keyFacts.isEmpty() && wm.openQuestions.isEmpty()) {
+        if (wm.goal.isNullOrBlank() &&
+            wm.clarifications.isEmpty() &&
+            wm.constraints.isEmpty() &&
+            wm.keyFacts.isEmpty() &&
+            wm.openQuestions.isEmpty()
+        ) {
             return "Рабочая память пуста"
         }
 
         return buildString {
             appendLine("Цель: ${wm.goal ?: "—"}")
+            appendLine()
+            appendLine("Что пользователь уже уточнил:")
+            if (wm.clarifications.isEmpty()) appendLine("- —") else wm.clarifications.forEach { appendLine("- $it") }
+            appendLine()
+            appendLine("Ограничения и зафиксированные термины:")
+            if (wm.constraints.isEmpty()) appendLine("- —") else wm.constraints.forEach { appendLine("- $it") }
             appendLine()
             appendLine("Ключевые данные:")
             if (wm.keyFacts.isEmpty()) appendLine("- —") else wm.keyFacts.forEach { appendLine("- $it") }

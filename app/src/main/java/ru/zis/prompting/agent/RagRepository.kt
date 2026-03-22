@@ -25,6 +25,7 @@ class RagRepository(
 ) {
     companion object {
         private const val LOW_RELEVANCE_THRESHOLD = 0.25f
+        private const val LOW_RELEVANCE_THRESHOLD_PROJECT_STRUCTURE = 0.08f
         private const val LOW_RELEVANCE_FALLBACK = """
 ## Ответ
 Не знаю. В базе знаний нет достаточно релевантной информации по этому вопросу. Уточните запрос.
@@ -43,12 +44,37 @@ class RagRepository(
     @Volatile
     private var cachedChunks: List<RagIndexedChunk>? = null
 
-    suspend fun buildRagSystemMessage(question: String, topK: Int = 4): String? {
+    suspend fun buildRagSystemMessage(question: String, topK: Int = 8): String? {
         val query = question.trim()
         if (query.isBlank()) return null
 
+        val dialogMemoryQuestion = isDialogMemoryQuestion(query)
+        val projectStructureQuestion = isProjectStructureQuestion(query)
+
         val hits = retrieveRelevantChunks(query = query, topK = topK)
+
+        if (dialogMemoryQuestion) {
+            val reason = if (hits.isEmpty()) {
+                "Это вопрос по состоянию текущего диалога. Контекст в индексной базе не найден. Приоритет — память диалога."
+            } else {
+                "Это вопрос по состоянию текущего диалога. Приоритет — память диалога, RAG-фрагменты ниже как дополнительная опора."
+            }
+            return buildDialogMemoryFallbackPrompt(
+                query = query,
+                reason = reason,
+                hits = hits
+            )
+        }
+
         if (hits.isEmpty()) {
+            if (projectStructureQuestion) {
+                return buildDialogMemoryFallbackPrompt(
+                    query = query,
+                    reason = "Контекст по структуре проекта в индексной базе не найден. Используй память диалога и явно укажи, что ответ может быть неполным.",
+                    hits = emptyList()
+                )
+            }
+
             return buildString {
                 appendLine("=== RAG КОНТЕКСТ ===")
                 appendLine("Контекст не найден. Верни строго следующий ответ без изменений:")
@@ -60,10 +86,20 @@ class RagRepository(
         }
 
         val maxScore = hits.maxOfOrNull { it.score } ?: 0f
-        if (maxScore < LOW_RELEVANCE_THRESHOLD) {
+        val threshold = if (projectStructureQuestion) {
+            LOW_RELEVANCE_THRESHOLD_PROJECT_STRUCTURE
+        } else {
+            LOW_RELEVANCE_THRESHOLD
+        }
+
+        if (projectStructureQuestion) {
+            return buildBestEffortRagContext(query = query, hits = hits, maxScore = maxScore)
+        }
+
+        if (maxScore < threshold) {
             return buildString {
                 appendLine("=== RAG КОНТЕКСТ ===")
-                appendLine("Контекст слишком слабый (maxScore=${"%.4f".format(maxScore)} < $LOW_RELEVANCE_THRESHOLD).")
+                appendLine("Контекст слишком слабый (maxScore=${"%.4f".format(maxScore)} < $threshold).")
                 appendLine("Верни строго следующий ответ без изменений:")
                 appendLine()
                 appendLine(LOW_RELEVANCE_FALLBACK.trim())
@@ -72,6 +108,10 @@ class RagRepository(
             }
         }
 
+        return buildStandardRagContext(query = query, hits = hits, maxScore = maxScore)
+    }
+
+    private fun buildStandardRagContext(query: String, hits: List<RagChunkHit>, maxScore: Float): String {
         val contextText = hits.joinToString("\n\n") { hit ->
             buildString {
                 appendLine("chunk_id: ${hit.chunkId}")
@@ -88,19 +128,19 @@ class RagRepository(
             appendLine("=== RAG КОНТЕКСТ ===")
             appendLine("Ниже — релевантные фрагменты базы знаний проекта.")
             appendLine("Опирайся только на них при ответе.")
-            appendLine("")
+            appendLine()
             appendLine("ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА:")
             appendLine("## Ответ")
             appendLine("<краткий и точный ответ>")
-            appendLine("")
+            appendLine()
             appendLine("## Источники")
             appendLine("- source: <путь>, section: <section>, chunk_id: <chunk_id>")
             appendLine("- ...")
-            appendLine("")
+            appendLine()
             appendLine("## Цитаты")
             appendLine("> \"<дословный фрагмент из найденных чанков>\"")
             appendLine("> ...")
-            appendLine("")
+            appendLine()
             appendLine("Правила:")
             appendLine("1) Источники и цитаты — обязательны в каждом ответе.")
             appendLine("2) Секции 'Источники' и 'Цитаты' должны ссылаться только на реально использованные чанки.")
@@ -116,12 +156,56 @@ class RagRepository(
         }
     }
 
+    private fun buildBestEffortRagContext(query: String, hits: List<RagChunkHit>, maxScore: Float): String {
+        val contextText = hits.joinToString("\n\n") { hit ->
+            buildString {
+                appendLine("chunk_id: ${hit.chunkId}")
+                appendLine("source: ${hit.source}")
+                appendLine("title: ${hit.title}")
+                appendLine("section: ${hit.section}")
+                appendLine("score: ${"%.4f".format(hit.score)}")
+                appendLine("fragment:")
+                append(hit.text)
+            }
+        }
+
+        return buildString {
+            appendLine("=== RAG КОНТЕКСТ ===")
+            appendLine("Вопрос относится к структуре проекта/архитектуре.")
+            appendLine("Дай best-effort ответ по найденным фрагментам. Если данных мало — укажи это явно, но НЕ используй автоматический шаблон 'Не знаю'.")
+            appendLine()
+            appendLine("ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА:")
+            appendLine("## Ответ")
+            appendLine("<краткий и точный ответ>")
+            appendLine()
+            appendLine("## Источники")
+            appendLine("- source: <путь>, section: <section>, chunk_id: <chunk_id>")
+            appendLine("- ...")
+            appendLine()
+            appendLine("## Цитаты")
+            appendLine("> \"<дословный фрагмент из найденных чанков>\"")
+            appendLine("> \"...\"")
+            appendLine()
+            appendLine("Правила:")
+            appendLine("1) Источники и цитаты обязательны.")
+            appendLine("2) Не выдумывай сущности, которых нет в фрагментах.")
+            appendLine("3) Если список неполный — явно напиши, что это предварительный список по доступным фрагментам.")
+            appendLine()
+            appendLine("Вопрос пользователя: $query")
+            appendLine("Максимальная релевантность: ${"%.4f".format(maxScore)}")
+            appendLine()
+            appendLine("Релевантные фрагменты:")
+            appendLine(contextText)
+            append("=== КОНЕЦ RAG КОНТЕКСТА ===")
+        }
+    }
+
     suspend fun retrieveRelevantChunks(query: String, topK: Int = 4): List<RagChunkHit> = withContext(Dispatchers.IO) {
         val chunks = ensureChunksLoaded()
         if (chunks.isEmpty()) return@withContext emptyList()
 
         val queryEmbedding = runCatching { createQueryEmbedding(query) }.getOrNull()
-        val queryTokens = tokenize(query)
+        val queryTokens = enrichQueryTokens(tokenize(query))
 
         if (queryEmbedding == null && queryTokens.isEmpty()) return@withContext emptyList()
 
@@ -140,8 +224,6 @@ class RagRepository(
                         append(chunk.text)
                     }
                 )
-                // hybrid: если embeddings недоступны, остаётся lexical;
-                // если доступны — lexical помогает вытаскивать точные имена методов/файлов.
                 val combinedScore = if (queryEmbedding == null) {
                     lexicalScore
                 } else {
@@ -171,9 +253,7 @@ class RagRepository(
             )
         )
 
-        if (embeddingResp.error != null) {
-            return null
-        }
+        if (embeddingResp.error != null) return null
 
         val queryVec = embeddingResp.data.firstOrNull()?.embedding?.map { it.toFloat() }.orEmpty()
         if (queryVec.isEmpty()) return null
@@ -264,6 +344,95 @@ class RagRepository(
             .map { it.value.trim() }
             .filter { it.length >= 2 }
             .toSet()
+    }
+
+    private fun enrichQueryTokens(base: Set<String>): Set<String> {
+        if (base.isEmpty()) return base
+
+        val synonyms = linkedMapOf(
+            "архитектура" to listOf("architecture", "app", "android", "module", "layer", "layers"),
+            "слой" to listOf("layer", "layers", "data", "domain", "ui"),
+            "данных" to listOf("data", "database", "db", "room", "entity", "dao"),
+            "репозитор" to listOf("repository", "repositories", "chatrepository", "userprofilerepository", "invariantrepository", "weatherrepository"),
+            "база" to listOf("database", "db", "room", "appdatabase"),
+            "таблиц" to listOf("table", "tables", "entity", "entities"),
+            "храни" to listOf("storage", "persist", "save", "load"),
+            "dao" to listOf("dao", "chatsessiondao", "weatherrecorddao", "userprofiledao", "invariantdao"),
+            "viewmodel" to listOf("viewmodel", "chatviewmodel", "profileviewmodel"),
+            "rag" to listOf("rag", "retrieval", "chunk", "embedding", "index")
+        )
+
+        val additions = mutableSetOf<String>()
+        for (token in base) {
+            synonyms.forEach { (key, extra) ->
+                if (token.contains(key) || key.contains(token)) {
+                    additions += extra
+                }
+            }
+        }
+
+        return base + additions
+    }
+
+    private fun isProjectStructureQuestion(query: String): Boolean {
+        val q = query.lowercase(Locale.ROOT)
+        val markers = listOf(
+            "архитектур", "сло", "data layer", "слой данных", "репозитор", "repository",
+            "room", "dao", "таблиц", "entity", "база данных", "appdatabase"
+        )
+        return markers.any { q.contains(it) }
+    }
+
+    private fun isDialogMemoryQuestion(query: String): Boolean {
+        val q = query.lowercase(Locale.ROOT)
+        val markers = listOf(
+            "подведи итог", "итог", "что ты узнал", "что мы", "мы уточнили",
+            "какие ограничения", "напомни цель", "цель диалога", "за время разговора",
+            "в нашем диалоге", "обсуждали", "зафиксировали"
+        )
+        return markers.any { q.contains(it) }
+    }
+
+    private fun buildDialogMemoryFallbackPrompt(query: String, reason: String, hits: List<RagChunkHit>): String {
+        val weakRagSection = if (hits.isEmpty()) {
+            ""
+        } else {
+            buildString {
+                appendLine()
+                appendLine("Дополнительные RAG-фрагменты (используй только при релевантности):")
+                hits.forEach { hit ->
+                    appendLine("- source: ${hit.source}, section: ${hit.section}, chunk_id: ${hit.chunkId}, score=${"%.4f".format(hit.score)}")
+                }
+            }
+        }
+
+        return buildString {
+            appendLine("=== RAG КОНТЕКСТ ===")
+            appendLine(reason)
+            appendLine("Для этого вопроса разрешено опереться на память диалога (working memory / summary / recent history).")
+            appendLine()
+            appendLine("ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА:")
+            appendLine("## Ответ")
+            appendLine("<краткий и точный ответ по памяти текущего диалога>")
+            appendLine()
+            appendLine("## Источники")
+            appendLine("- source: memory://working-memory, section: working_memory")
+            appendLine("- source: memory://summary, section: summary")
+            appendLine("- source: memory://recent-history, section: dialog")
+            appendLine()
+            appendLine("## Цитаты")
+            appendLine("> \"<краткая дословная цитата из сообщений пользователя/ассистента или из summary>\"")
+            appendLine("> \"...\"")
+            appendLine()
+            appendLine("Правила:")
+            appendLine("1) Источники и цитаты обязательны.")
+            appendLine("2) Не выдумывай факты: опирайся только на текущую память диалога.")
+            appendLine("3) Если в памяти недостаточно данных, прямо так и скажи, но формат сохрани.")
+            appendLine()
+            appendLine("Вопрос пользователя: $query")
+            append(weakRagSection)
+            append("=== КОНЕЦ RAG КОНТЕКСТА ===")
+        }
     }
 
     private fun lexicalOverlapScore(queryTokens: Set<String>, chunkText: String): Float {
