@@ -3,6 +3,7 @@ package ru.zis.prompting
 import android.app.Application
 import ru.zis.prompting.agent.RagRepository
 import ru.zis.prompting.mcp.McpRegistry
+import ru.zis.prompting.network.OllamaApiFactory
 import ru.zis.prompting.weather.WeatherNotifications
 import ru.zis.prompting.db.AppDatabase
 import ru.zis.prompting.db.ChatRepository
@@ -56,5 +57,9 @@ class App : Application() {
             context = this,
             api = ru.zis.prompting.network.RouterAiApiFactory.create()
         )
+    }
+
+    val ollamaApi by lazy {
+        OllamaApiFactory.create()
     }
 }

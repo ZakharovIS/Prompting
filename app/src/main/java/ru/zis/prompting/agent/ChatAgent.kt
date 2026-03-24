@@ -7,8 +7,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import ru.zis.prompting.network.RouterAiApi
+import ru.zis.prompting.network.OllamaApi
 import ru.zis.prompting.data.InputMessage
+import ru.zis.prompting.data.OllamaChatRequest
+import ru.zis.prompting.data.ResponseContentPart
+import ru.zis.prompting.data.ResponseOutputItem
 import ru.zis.prompting.data.ResponsesRequest
+import ru.zis.prompting.data.ResponsesResponse
 import ru.zis.prompting.data.Usage
 import ru.zis.prompting.mcp.McpRegistry
 import ru.zis.prompting.profile.UserProfile
@@ -16,6 +21,8 @@ import ru.zis.prompting.profile.UserProfile
 class ChatAgent(
     private val api: RouterAiApi,
     private val model: String = "openai/gpt-5.2",
+    private val ollamaApi: OllamaApi? = null,
+    private val localModel: String = "qwen2.5:14b",
     private val maxHistoryMessages: Int = 40,
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val mcpRegistry: McpRegistry = McpRegistry.default(),
@@ -34,6 +41,7 @@ class ChatAgent(
     private var cumulativeOutputTokensSum: Int = 0
     private var hasCumulativeTokens: Boolean = false
     private var ragEnabled: Boolean = false
+    private var useLocalLlm: Boolean = false
     private val json = Json { ignoreUnknownKeys = true }
 
     private val clarificationMarkers = listOf(
@@ -101,6 +109,12 @@ class ChatAgent(
     }
 
     fun isRagEnabled(): Boolean = ragEnabled
+
+    fun setUseLocalLlm(enabled: Boolean) {
+        useLocalLlm = enabled
+    }
+
+    fun isUseLocalLlm(): Boolean = useLocalLlm
 
     /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */
     fun restoreHistory(saved: List<InputMessage>, savedSummary: String?) {
@@ -371,26 +385,80 @@ class ChatAgent(
         return null
     }
 
-    private suspend fun requestModel(temperature: Float?) = api.createResponse(
-        ResponsesRequest(
-            model = model,
-            input = buildContextMessages(),
-            stream = false,
-            temperature = temperature
-        )
-    ).also { resp ->
-        if (resp.error != null) {
-            throw IllegalStateException(resp.error.message ?: "RouterAI error")
+    private suspend fun requestModel(temperature: Float?): ResponsesResponse {
+        return requestModelForMessages(buildContextMessages(), temperature)
+    }
+
+    private suspend fun requestModelForMessages(
+        messages: List<InputMessage>,
+        temperature: Float?
+    ): ResponsesResponse {
+        if (useLocalLlm && ollamaApi != null) {
+            val ollamaResponse = ollamaApi.chat(
+                OllamaChatRequest(
+                    model = localModel,
+                    messages = messages,
+                    stream = false,
+                    temperature = temperature
+                )
+            )
+
+            val promptTokens = ollamaResponse.promptEvalCount
+            val completionTokens = ollamaResponse.evalCount
+            val total = if (promptTokens != null || completionTokens != null) {
+                (promptTokens ?: 0) + (completionTokens ?: 0)
+            } else {
+                null
+            }
+
+            val usage = Usage(
+                inputTokens = promptTokens,
+                outputTokens = completionTokens,
+                totalTokens = total,
+                currentRequestTokens = promptTokens,
+                modelResponseTokens = completionTokens
+            )
+            addToCumulative(usage)
+
+            return ResponsesResponse(
+                output = listOf(
+                    ResponseOutputItem(
+                        type = "message",
+                        role = "assistant",
+                        content = listOf(
+                            ResponseContentPart(
+                                type = "output_text",
+                                text = ollamaResponse.message?.content.orEmpty()
+                            )
+                        )
+                    )
+                ),
+                usage = usage,
+                error = null
+            )
         }
-        addToCumulative(resp.usage)
+
+        return api.createResponse(
+            ResponsesRequest(
+                model = model,
+                input = messages,
+                stream = false,
+                temperature = temperature
+            )
+        ).also { resp ->
+            if (resp.error != null) {
+                throw IllegalStateException(resp.error.message ?: "RouterAI error")
+            }
+            addToCumulative(resp.usage)
+        }
     }
 
     private fun parseToolCall(raw: String): McpToolCallPayload? {
         val trimmed = raw.trim()
-        if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) return null
+        val jsonCandidate = extractFirstJsonObject(trimmed) ?: return null
 
         val parsed = runCatching {
-            json.decodeFromString<McpToolCallPayload>(trimmed)
+            json.decodeFromString<McpToolCallPayload>(jsonCandidate)
         }.getOrNull() ?: return null
 
         if (parsed.tool.isBlank()) return null
@@ -729,23 +797,19 @@ class ChatAgent(
             {"profile": "DEV"|"ANALYTICS"|"FREE"}
         """.trimIndent()
 
-        val response = api.createResponse(
-            ResponsesRequest(
-                model = model,
-                input = listOf(InputMessage(role = "user", content = prompt)),
-                stream = false,
-                temperature = temperature
-            )
+        val response = requestModelForMessages(
+            messages = listOf(InputMessage(role = "user", content = prompt)),
+            temperature = temperature
         )
 
         if (response.error != null) {
             throw IllegalStateException(response.error.message ?: "RouterAI task profile classification error")
         }
 
-        addToCumulative(response.usage)
-
         val parsed = runCatching {
-            json.decodeFromString<TaskProfileClassificationResult>(response.extractText().trim())
+            val raw = response.extractText().trim()
+            val jsonCandidate = extractFirstJsonObject(raw) ?: raw
+            json.decodeFromString<TaskProfileClassificationResult>(jsonCandidate)
         }.getOrNull()
 
         return TaskProfiles.parseProfile(parsed?.profile) ?: TaskProfileType.FREE
@@ -773,23 +837,19 @@ class ChatAgent(
             {"transitionRequested": true|false, "targetStage": "STAGE_NAME"|null}
         """.trimIndent()
 
-        val response = api.createResponse(
-            ResponsesRequest(
-                model = model,
-                input = listOf(InputMessage(role = "user", content = prompt)),
-                stream = false,
-                temperature = temperature
-            )
+        val response = requestModelForMessages(
+            messages = listOf(InputMessage(role = "user", content = prompt)),
+            temperature = temperature
         )
 
         if (response.error != null) {
             throw IllegalStateException(response.error.message ?: "RouterAI transition intent detection error")
         }
 
-        addToCumulative(response.usage)
-
         return runCatching {
-            json.decodeFromString<TransitionIntentResult>(response.extractText().trim())
+            val raw = response.extractText().trim()
+            val jsonCandidate = extractFirstJsonObject(raw) ?: raw
+            json.decodeFromString<TransitionIntentResult>(jsonCandidate)
         }.getOrElse {
             TransitionIntentResult()
         }
@@ -838,20 +898,14 @@ class ChatAgent(
             $dialog
         """.trimIndent()
 
-        val summaryResponse = api.createResponse(
-            ResponsesRequest(
-                model = model,
-                input = listOf(InputMessage(role = "user", content = summaryPrompt)),
-                stream = false,
-                temperature = temperature
-            )
+        val summaryResponse = requestModelForMessages(
+            messages = listOf(InputMessage(role = "user", content = summaryPrompt)),
+            temperature = temperature
         )
 
         if (summaryResponse.error != null) {
             throw IllegalStateException(summaryResponse.error.message ?: "RouterAI summary error")
         }
-
-        addToCumulative(summaryResponse.usage)
 
         return summaryResponse.extractText().ifBlank { "Краткое summary недоступно." }
     }
@@ -877,24 +931,19 @@ class ChatAgent(
             {"violated": true|false, "rule": "текст инварианта или null", "explanation": "краткое объяснение"}
         """.trimIndent()
 
-        val validationResponse = api.createResponse(
-            ResponsesRequest(
-                model = model,
-                input = listOf(InputMessage(role = "user", content = validatorPrompt)),
-                stream = false,
-                temperature = temperature
-            )
+        val validationResponse = requestModelForMessages(
+            messages = listOf(InputMessage(role = "user", content = validatorPrompt)),
+            temperature = temperature
         )
 
         if (validationResponse.error != null) {
             throw IllegalStateException(validationResponse.error.message ?: "RouterAI invariant validation error")
         }
 
-        addToCumulative(validationResponse.usage)
-
         val rawText = validationResponse.extractText().trim()
         val parsed = runCatching {
-            json.decodeFromString<InvariantValidationResult>(rawText)
+            val jsonCandidate = extractFirstJsonObject(rawText) ?: rawText
+            json.decodeFromString<InvariantValidationResult>(jsonCandidate)
         }.getOrElse {
             return candidate
         }
@@ -922,6 +971,47 @@ class ChatAgent(
         cumulativeInputTokensSum += (input ?: 0)
         cumulativeOutputTokensSum += (output ?: 0)
         hasCumulativeTokens = true
+    }
+
+    private fun extractFirstJsonObject(text: String): String? {
+        val start = text.indexOf('{')
+        if (start == -1) return null
+
+        var depth = 0
+        var inString = false
+        var escaped = false
+
+        for (i in start until text.length) {
+            val ch = text[i]
+
+            if (inString) {
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                if (ch == '\\') {
+                    escaped = true
+                    continue
+                }
+                if (ch == '"') {
+                    inString = false
+                }
+                continue
+            }
+
+            when (ch) {
+                '"' -> inString = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) {
+                        return text.substring(start, i + 1)
+                    }
+                }
+            }
+        }
+
+        return null
     }
 }
 

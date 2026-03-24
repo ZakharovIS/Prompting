@@ -151,7 +151,12 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Модель: ${vm.model}",
+                text = "Модель: ${if (vm.useLocalLlm) vm.localModel else vm.model}",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Text(
+                text = "Источник LLM: ${if (vm.useLocalLlm) "Локально (Ollama)" else "Облако (RouterAI)"}",
                 style = MaterialTheme.typography.bodySmall
             )
 
@@ -173,6 +178,22 @@ fun ChatScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (vm.taskStageCode == null) MaterialTheme.colorScheme.error else Color.Unspecified
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Локальная LLM: ${if (vm.useLocalLlm) "ВКЛ" else "ВЫКЛ"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Switch(
+                    checked = vm.useLocalLlm,
+                    onCheckedChange = { vm.updateUseLocalLlm(it) },
+                    enabled = !vm.loading && !vm.historyLoading
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

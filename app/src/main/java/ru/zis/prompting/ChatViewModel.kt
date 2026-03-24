@@ -40,16 +40,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var ragEnabled by mutableStateOf(false)
         private set
 
+    var useLocalLlm by mutableStateOf(false)
+        private set
+
     /** true пока идёт начальная загрузка истории из БД */
     var historyLoading by mutableStateOf(true)
         private set
 
     val model = "openai/gpt-5.2"
+    val localModel = "qwen2.5:14b"
 
     private val api = RouterAiApiFactory.create()
     private val agent = ChatAgent(
         api = api,
         model = model,
+        ollamaApi = app.ollamaApi,
+        localModel = localModel,
         mcpRegistry = app.mcpRegistry,
         ragRepository = app.ragRepository
     )
@@ -105,6 +111,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 applyActiveProfile(activeProfile)
                 agent.setInvariants(invariants)
                 agent.setRagEnabled(ragEnabled)
+                agent.setUseLocalLlm(useLocalLlm)
                 historyLoading = false
             }
         }
@@ -113,6 +120,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun updateRagEnabled(enabled: Boolean) {
         ragEnabled = enabled
         agent.setRagEnabled(enabled)
+    }
+
+    fun updateUseLocalLlm(enabled: Boolean) {
+        useLocalLlm = enabled
+        agent.setUseLocalLlm(enabled)
     }
 
     fun refreshActiveProfile() {
