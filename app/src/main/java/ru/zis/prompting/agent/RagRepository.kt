@@ -44,6 +44,13 @@ class RagRepository(
     @Volatile
     private var cachedChunks: List<RagIndexedChunk>? = null
 
+    @Volatile
+    private var useLocalLlm: Boolean = false
+
+    fun setUseLocalLlm(enabled: Boolean) {
+        useLocalLlm = enabled
+    }
+
     suspend fun buildRagSystemMessage(question: String, topK: Int = 8): String? {
         val query = question.trim()
         if (query.isBlank()) return null
@@ -204,7 +211,11 @@ class RagRepository(
         val chunks = ensureChunksLoaded()
         if (chunks.isEmpty()) return@withContext emptyList()
 
-        val queryEmbedding = runCatching { createQueryEmbedding(query) }.getOrNull()
+        val queryEmbedding = if (useLocalLlm) {
+            null
+        } else {
+            runCatching { createQueryEmbedding(query) }.getOrNull()
+        }
         val queryTokens = enrichQueryTokens(tokenize(query))
 
         if (queryEmbedding == null && queryTokens.isEmpty()) return@withContext emptyList()

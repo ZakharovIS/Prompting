@@ -161,6 +161,11 @@ fun ChatScreen(
             )
 
             Text(
+                text = "RAG retrieval: ${if (vm.useLocalLlm) "Локально (лексический, без cloud embeddings)" else "Гибридный (семантический + лексический)"}",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Text(
                 text = "Профиль: ${vm.activeProfileName ?: "не выбран"}",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (vm.activeProfileName == null) MaterialTheme.colorScheme.error else Color.Unspecified

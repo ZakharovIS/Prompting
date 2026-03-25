@@ -112,6 +112,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 agent.setInvariants(invariants)
                 agent.setRagEnabled(ragEnabled)
                 agent.setUseLocalLlm(useLocalLlm)
+                app.ragRepository.setUseLocalLlm(useLocalLlm)
                 historyLoading = false
             }
         }
@@ -125,6 +126,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun updateUseLocalLlm(enabled: Boolean) {
         useLocalLlm = enabled
         agent.setUseLocalLlm(enabled)
+        app.ragRepository.setUseLocalLlm(enabled)
     }
 
     fun refreshActiveProfile() {
