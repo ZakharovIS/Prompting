@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import ru.zis.prompting.network.RouterAiApi
 import ru.zis.prompting.network.OllamaApi
 import ru.zis.prompting.data.InputMessage
+import ru.zis.prompting.data.OllamaOptions
 import ru.zis.prompting.data.OllamaChatRequest
 import ru.zis.prompting.data.ResponseContentPart
 import ru.zis.prompting.data.ResponseOutputItem
@@ -20,9 +21,9 @@ import ru.zis.prompting.profile.UserProfile
 
 class ChatAgent(
     private val api: RouterAiApi,
-    private val model: String = "openai/gpt-5.2",
+    private var model: String = "openai/gpt-5.2",
     private val ollamaApi: OllamaApi? = null,
-    private val localModel: String = "qwen2.5:14b",
+    private var localModel: String = "qwen2.5:14b",
     private val maxHistoryMessages: Int = 40,
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val mcpRegistry: McpRegistry = McpRegistry.default(),
@@ -42,6 +43,10 @@ class ChatAgent(
     private var hasCumulativeTokens: Boolean = false
     private var ragEnabled: Boolean = false
     private var useLocalLlm: Boolean = false
+    private var codeQaEnabled: Boolean = false
+    private var localTemperature: Float = 1.0f
+    private var localNumCtx: Int? = null
+    private var localNumPredict: Int? = null
     private val json = Json { ignoreUnknownKeys = true }
 
     private val clarificationMarkers = listOf(
@@ -115,6 +120,34 @@ class ChatAgent(
     }
 
     fun isUseLocalLlm(): Boolean = useLocalLlm
+
+    fun setModel(value: String) {
+        if (value.isNotBlank()) model = value
+    }
+
+    fun setLocalModel(value: String) {
+        if (value.isNotBlank()) localModel = value
+    }
+
+    fun getModel(): String = model
+
+    fun getLocalModel(): String = localModel
+
+    fun setCodeQaEnabled(enabled: Boolean) {
+        codeQaEnabled = enabled
+    }
+
+    fun isCodeQaEnabled(): Boolean = codeQaEnabled
+
+    fun setLocalGenerationConfig(
+        temperature: Float,
+        numCtx: Int?,
+        numPredict: Int?
+    ) {
+        localTemperature = temperature.coerceIn(0f, 2f)
+        localNumCtx = numCtx?.coerceAtLeast(256)
+        localNumPredict = numPredict?.coerceAtLeast(32)
+    }
 
     /** Восстанавливает историю из сохранённого состояния (например, при перезапуске). */
     fun restoreHistory(saved: List<InputMessage>, savedSummary: String?) {
@@ -394,12 +427,20 @@ class ChatAgent(
         temperature: Float?
     ): ResponsesResponse {
         if (useLocalLlm && ollamaApi != null) {
+            val effectiveTemperature = localTemperature
+            val ollamaOptions = OllamaOptions(
+                numCtx = localNumCtx,
+                numPredict = localNumPredict,
+                temperature = effectiveTemperature
+            )
+
             val ollamaResponse = ollamaApi.chat(
                 OllamaChatRequest(
                     model = localModel,
                     messages = messages,
                     stream = false,
-                    temperature = temperature
+                    temperature = effectiveTemperature,
+                    options = ollamaOptions
                 )
             )
 
@@ -483,6 +524,7 @@ class ChatAgent(
         val invariantsSystem = buildInvariantsSystemMessage()
         val longTermSystem = buildLongTermSystemMessage()
         val workingSystem = buildWorkingSystemMessage()
+        val codeQaSystem = buildCodeQaSystemMessage()
         val mcpSystem = buildMcpToolsSystemMessage()
 
         val summaryMessage = summary?.takeIf { it.isNotBlank() }?.let {
@@ -497,10 +539,35 @@ class ChatAgent(
             invariantsSystem,
             longTermSystem,
             workingSystem,
+            codeQaSystem,
             mcpSystem,
             ragSystem,
             summaryMessage
         ) + recentMessages
+    }
+
+    private fun buildCodeQaSystemMessage(): InputMessage? {
+        if (!codeQaEnabled) return null
+
+        val content = buildString {
+            appendLine("=== CODE QA MODE ===")
+            appendLine("Режим анализа кодовой базы включён.")
+            appendLine("Отвечай как инженер по текущему проекту Android.")
+            appendLine()
+            appendLine("Правила:")
+            appendLine("1) Не выдумывай классы, файлы, методы и поля.")
+            appendLine("2) Если включён RAG, опирайся на найденные фрагменты в первую очередь.")
+            appendLine("3) Если данных недостаточно, явно укажи это и предложи, что уточнить.")
+            appendLine("4) Для ответов по коду используй краткий технический стиль.")
+            appendLine("5) Форматируй ответ в виде:")
+            appendLine("   - Краткий ответ")
+            appendLine("   - Где в проекте (файлы/классы)")
+            appendLine("   - Что изменить")
+            appendLine("   - Риски/проверки")
+            append("====================")
+        }
+
+        return InputMessage(role = SUMMARY_ROLE, content = content)
     }
 
     private fun buildMcpToolsSystemMessage(): InputMessage {

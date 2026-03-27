@@ -26,6 +26,12 @@ data class UiMessage(
     val usage: Usage? = null       // только для assistant
 )
 
+enum class LocalLlmPreset(val label: String) {
+    DEFAULT("Default"),
+    OPTIMAL("Оптимальные"),
+    CUSTOM("Кастом")
+}
+
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val app: App = application as App
@@ -47,8 +53,37 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     var historyLoading by mutableStateOf(true)
         private set
 
-    val model = "openai/gpt-5.2"
-    val localModel = "qwen2.5:14b"
+    val cloudModels = listOf(
+        "openai/gpt-5.2",
+        "openai/gpt-4.1-mini"
+    )
+
+    val localModels = listOf(
+        "qwen2.5:14b",
+        "qwen2.5-coder:14b",
+        "llama3.1:8b"
+    )
+
+    var model by mutableStateOf(cloudModels.first())
+        private set
+
+    var localModel by mutableStateOf(localModels.first())
+        private set
+
+    var codeQaEnabled by mutableStateOf(false)
+        private set
+
+    var localLlmPreset by mutableStateOf(LocalLlmPreset.DEFAULT)
+        private set
+
+    var localTemperature by mutableFloatStateOf(1.0f)
+        private set
+
+    var localNumCtx by mutableStateOf<Int?>(null)
+        private set
+
+    var localNumPredict by mutableStateOf<Int?>(null)
+        private set
 
     private val api = RouterAiApiFactory.create()
     private val agent = ChatAgent(
@@ -85,6 +120,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     init {
+        pushLocalGenerationConfigToAgent()
         loadHistory()
     }
 
@@ -112,6 +148,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 agent.setInvariants(invariants)
                 agent.setRagEnabled(ragEnabled)
                 agent.setUseLocalLlm(useLocalLlm)
+                agent.setCodeQaEnabled(codeQaEnabled)
                 app.ragRepository.setUseLocalLlm(useLocalLlm)
                 historyLoading = false
             }
@@ -127,6 +164,65 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         useLocalLlm = enabled
         agent.setUseLocalLlm(enabled)
         app.ragRepository.setUseLocalLlm(enabled)
+    }
+
+    fun updateCodeQaEnabled(enabled: Boolean) {
+        codeQaEnabled = enabled
+        agent.setCodeQaEnabled(enabled)
+    }
+
+    fun applyLocalLlmPreset(preset: LocalLlmPreset) {
+        localLlmPreset = preset
+        when (preset) {
+            LocalLlmPreset.DEFAULT -> {
+                localTemperature = 1.0f
+                localNumCtx = null
+                localNumPredict = null
+            }
+
+            LocalLlmPreset.OPTIMAL -> {
+                localTemperature = 0.1f
+                localNumCtx = 8192
+                localNumPredict = 1024
+            }
+
+            LocalLlmPreset.CUSTOM -> {
+                // Не изменяем значения — пользователь настраивает вручную.
+            }
+        }
+        pushLocalGenerationConfigToAgent()
+    }
+
+    fun updateLocalTemperature(value: Float) {
+        localTemperature = value.coerceIn(0f, 2f)
+        localLlmPreset = LocalLlmPreset.CUSTOM
+        pushLocalGenerationConfigToAgent()
+    }
+
+    fun updateLocalNumCtxFromInput(raw: String) {
+        val parsed = raw.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+        localNumCtx = parsed?.coerceAtLeast(256)
+        localLlmPreset = LocalLlmPreset.CUSTOM
+        pushLocalGenerationConfigToAgent()
+    }
+
+    fun updateLocalNumPredictFromInput(raw: String) {
+        val parsed = raw.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+        localNumPredict = parsed?.coerceAtLeast(32)
+        localLlmPreset = LocalLlmPreset.CUSTOM
+        pushLocalGenerationConfigToAgent()
+    }
+
+    fun updateCloudModel(newModel: String) {
+        if (!cloudModels.contains(newModel)) return
+        model = newModel
+        agent.setModel(newModel)
+    }
+
+    fun updateLocalModel(newModel: String) {
+        if (!localModels.contains(newModel)) return
+        localModel = newModel
+        agent.setLocalModel(newModel)
     }
 
     fun refreshActiveProfile() {
@@ -320,5 +416,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         taskStageLabel = snapshot.stageLabel
         taskProfileCode = snapshot.profileType?.name
         taskStageCode = snapshot.currentStage?.name
+    }
+
+    private fun pushLocalGenerationConfigToAgent() {
+        agent.setLocalGenerationConfig(
+            temperature = localTemperature,
+            numCtx = localNumCtx,
+            numPredict = localNumPredict
+        )
     }
 }

@@ -30,6 +30,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,8 +46,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +62,11 @@ fun ChatScreen(
 ) {
     val maxPromptChars = 1500
     var memoryDialog by remember { mutableStateOf<MemoryDialogType?>(null) }
+    var settingsDialogOpen by remember { mutableStateOf(false) }
     var topBarMenuExpanded by remember { mutableStateOf(false) }
+    var cloudModelMenuExpanded by remember { mutableStateOf(false) }
+    var localModelMenuExpanded by remember { mutableStateOf(false) }
+    var localPresetMenuExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         vm.refreshActiveProfile()
@@ -150,71 +157,38 @@ fun ChatScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${if (vm.useLocalLlm) "Local" else "Cloud"} • CodeQA ${if (vm.codeQaEnabled) "ON" else "OFF"} • RAG ${if (vm.ragEnabled) "ON" else "OFF"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                TextButton(
+                    onClick = { settingsDialogOpen = true },
+                    enabled = !vm.historyLoading
+                ) {
+                    Text("Настройки")
+                }
+            }
+
             Text(
                 text = "Модель: ${if (vm.useLocalLlm) vm.localModel else vm.model}",
                 style = MaterialTheme.typography.bodySmall
             )
 
             Text(
-                text = "Источник LLM: ${if (vm.useLocalLlm) "Локально (Ollama)" else "Облако (RouterAI)"}",
-                style = MaterialTheme.typography.bodySmall
-            )
-
-            Text(
-                text = "RAG retrieval: ${if (vm.useLocalLlm) "Локально (лексический, без cloud embeddings)" else "Гибридный (семантический + лексический)"}",
-                style = MaterialTheme.typography.bodySmall
-            )
-
-            Text(
-                text = "Профиль: ${vm.activeProfileName ?: "не выбран"}",
+                text = "Профиль: ${vm.activeProfileName ?: "—"} • Стадия: ${vm.taskStageCode ?: "—"}",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (vm.activeProfileName == null) MaterialTheme.colorScheme.error else Color.Unspecified
+                color = if (vm.activeProfileName == null || vm.taskStageCode == null) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    Color.Unspecified
+                }
             )
-
-            Text(
-                text = "Профиль задачи: ${vm.taskProfileLabel ?: "не определён"}" +
-                        (vm.taskProfileCode?.let { " ($it)" } ?: ""),
-                style = MaterialTheme.typography.bodySmall
-            )
-
-            Text(
-                text = "Стадия: ${vm.taskStageLabel ?: "не определена"}" +
-                        (vm.taskStageCode?.let { " ($it)" } ?: ""),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (vm.taskStageCode == null) MaterialTheme.colorScheme.error else Color.Unspecified
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Локальная LLM: ${if (vm.useLocalLlm) "ВКЛ" else "ВЫКЛ"}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Switch(
-                    checked = vm.useLocalLlm,
-                    onCheckedChange = { vm.updateUseLocalLlm(it) },
-                    enabled = !vm.loading && !vm.historyLoading
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "RAG режим: ${if (vm.ragEnabled) "ВКЛ" else "ВЫКЛ"}",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Switch(
-                    checked = vm.ragEnabled,
-                    onCheckedChange = { vm.updateRagEnabled(it) },
-                    enabled = !vm.loading && !vm.historyLoading
-                )
-            }
 
             /*Text(
                 text = "Температура: ${String.format(Locale.US, "%.2f", vm.temperature)}",
@@ -324,6 +298,182 @@ fun ChatScreen(
                 }
             )
         }
+    }
+
+    if (settingsDialogOpen) {
+        val settingsScrollState = rememberScrollState()
+
+        AlertDialog(
+            onDismissRequest = { settingsDialogOpen = false },
+            title = { Text("Настройки чата") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(settingsScrollState),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Локальная LLM")
+                        Switch(
+                            checked = vm.useLocalLlm,
+                            onCheckedChange = { vm.updateUseLocalLlm(it) },
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Code QA")
+                        Switch(
+                            checked = vm.codeQaEnabled,
+                            onCheckedChange = { vm.updateCodeQaEnabled(it) },
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("RAG")
+                        Switch(
+                            checked = vm.ragEnabled,
+                            onCheckedChange = { vm.updateRagEnabled(it) },
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+                    }
+
+                    if (!vm.useLocalLlm) {
+                        Text(text = "Cloud модель: ${vm.model}", style = MaterialTheme.typography.bodySmall)
+                        TextButton(
+                            onClick = { cloudModelMenuExpanded = true },
+                            enabled = !vm.loading && !vm.historyLoading
+                        ) {
+                            Text("Сменить cloud-модель")
+                        }
+                        DropdownMenu(
+                            expanded = cloudModelMenuExpanded,
+                            onDismissRequest = { cloudModelMenuExpanded = false }
+                        ) {
+                            vm.cloudModels.forEach { candidate ->
+                                DropdownMenuItem(
+                                    text = { Text(candidate) },
+                                    onClick = {
+                                        vm.updateCloudModel(candidate)
+                                        cloudModelMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    } else {
+                        Text(text = "Локальная модель: ${vm.localModel}", style = MaterialTheme.typography.bodySmall)
+                        TextButton(
+                            onClick = { localModelMenuExpanded = true },
+                            enabled = !vm.loading && !vm.historyLoading
+                        ) {
+                            Text("Сменить локальную модель")
+                        }
+                        DropdownMenu(
+                            expanded = localModelMenuExpanded,
+                            onDismissRequest = { localModelMenuExpanded = false }
+                        ) {
+                            vm.localModels.forEach { candidate ->
+                                DropdownMenuItem(
+                                    text = { Text(candidate) },
+                                    onClick = {
+                                        vm.updateLocalModel(candidate)
+                                        localModelMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Профиль параметров: ${vm.localLlmPreset.label}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        TextButton(
+                            onClick = { localPresetMenuExpanded = true },
+                            enabled = !vm.loading && !vm.historyLoading
+                        ) {
+                            Text("Выбрать профиль")
+                        }
+                        DropdownMenu(
+                            expanded = localPresetMenuExpanded,
+                            onDismissRequest = { localPresetMenuExpanded = false }
+                        ) {
+                            LocalLlmPreset.values().forEach { preset ->
+                                DropdownMenuItem(
+                                    text = { Text(preset.label) },
+                                    onClick = {
+                                        vm.applyLocalLlmPreset(preset)
+                                        localPresetMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Temperature: ${String.format(Locale.US, "%.2f", vm.localTemperature)}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Slider(
+                            value = vm.localTemperature,
+                            onValueChange = { vm.updateLocalTemperature(it) },
+                            valueRange = 0f..2f,
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+
+                        OutlinedTextField(
+                            value = vm.localNumCtx?.toString() ?: "",
+                            onValueChange = { raw ->
+                                if (raw.all { it.isDigit() }) vm.updateLocalNumCtxFromInput(raw)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Context window (num_ctx)") },
+                            placeholder = { Text("например, 8192") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+
+                        OutlinedTextField(
+                            value = vm.localNumPredict?.toString() ?: "",
+                            onValueChange = { raw ->
+                                if (raw.all { it.isDigit() }) vm.updateLocalNumPredictFromInput(raw)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Max tokens (num_predict)") },
+                            placeholder = { Text("например, 1024") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+                    }
+
+                    Text(
+                        text = "Профиль задачи: ${vm.taskProfileLabel ?: "не определён"}" +
+                                (vm.taskProfileCode?.let { " ($it)" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { settingsDialogOpen = false }) {
+                    Text("Закрыть")
+                }
+            }
+        )
     }
 
     memoryDialog?.let { type ->
