@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -15,39 +16,135 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(vm: ChatViewModel = viewModel()) {
+fun ChatScreen(
+    onOpenProfiles: () -> Unit,
+    onOpenMcp: () -> Unit,
+    onOpenWeatherPipeline: () -> Unit,
+    onOpenWeatherHistory: () -> Unit,
+    vm: ChatViewModel = viewModel()
+) {
     val maxPromptChars = 1500
+    var memoryDialog by remember { mutableStateOf<MemoryDialogType?>(null) }
+    var settingsDialogOpen by remember { mutableStateOf(false) }
+    var topBarMenuExpanded by remember { mutableStateOf(false) }
+    var cloudModelMenuExpanded by remember { mutableStateOf(false) }
+    var localModelMenuExpanded by remember { mutableStateOf(false) }
+    var localPresetMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        vm.refreshActiveProfile()
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("RouterAI LLM chat") },
+                title = { Text("Чат") },
                 actions = {
-                    TextButton(onClick = { vm.clearChat() }, enabled = !vm.loading) {
-                        Text("Очистить")
+                    IconButton(
+                        onClick = { topBarMenuExpanded = true },
+                        enabled = !vm.historyLoading
+                    ) {
+                        Text("⋮")
+                    }
+
+                    DropdownMenu(
+                        expanded = topBarMenuExpanded,
+                        onDismissRequest = { topBarMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Профили") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                onOpenProfiles()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("MCP") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                onOpenMcp()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Weather pipeline") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                onOpenWeatherPipeline()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("История погоды") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                onOpenWeatherHistory()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Память: краткосрочная") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                memoryDialog = MemoryDialogType.ShortTerm
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Память: рабочая") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                memoryDialog = MemoryDialogType.Working
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Память: долговременная") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                memoryDialog = MemoryDialogType.LongTerm
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Очистить чат") },
+                            onClick = {
+                                topBarMenuExpanded = false
+                                vm.clearChat()
+                            },
+                            enabled = !vm.loading
+                        )
                     }
                 }
             )
@@ -60,9 +157,37 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${if (vm.useLocalLlm) "Local" else "Cloud"} • CodeQA ${if (vm.codeQaEnabled) "ON" else "OFF"} • RAG ${if (vm.ragEnabled) "ON" else "OFF"}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                TextButton(
+                    onClick = { settingsDialogOpen = true },
+                    enabled = !vm.historyLoading
+                ) {
+                    Text("Настройки")
+                }
+            }
+
             Text(
-                text = "Модель: ${vm.model}",
+                text = "Модель: ${if (vm.useLocalLlm) vm.localModel else vm.model}",
                 style = MaterialTheme.typography.bodySmall
+            )
+
+            Text(
+                text = "Профиль: ${vm.activeProfileName ?: "—"} • Стадия: ${vm.taskStageCode ?: "—"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (vm.activeProfileName == null || vm.taskStageCode == null) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    Color.Unspecified
+                }
             )
 
             /*Text(
@@ -80,8 +205,12 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    CircularProgressIndicator(strokeWidth = 2.dp,
-                        modifier = Modifier.height(16.dp).width(16.dp))
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        modifier = Modifier
+                            .height(16.dp)
+                            .width(16.dp)
+                    )
                     Text("Загрузка истории...", style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -129,9 +258,19 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                     onClick = { vm.retryLastUser() },
                     enabled = !vm.loading && !vm.historyLoading && vm.messages.any { it.role == "user" }
                 ) {
-                    Icon(painterResource(R.drawable.baseline_refresh_24), contentDescription = "Повторить")
+                    Icon(
+                        painterResource(R.drawable.baseline_refresh_24),
+                        contentDescription = "Повторить"
+                    )
                     Spacer(Modifier.width(8.dp))
                     Text("Повторить запрос")
+                }
+
+                TextButton(
+                    onClick = { vm.resetTaskState() },
+                    enabled = !vm.loading && !vm.historyLoading
+                ) {
+                    Text("Сброс стадии")
                 }
             }
 
@@ -151,12 +290,226 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
                         onClick = { vm.send() },
                         enabled = !vm.loading && vm.inputText.isNotBlank()
                     ) {
-                        Icon(painterResource(R.drawable.baseline_send_24), contentDescription = "Отправить")
+                        Icon(
+                            painterResource(R.drawable.baseline_send_24),
+                            contentDescription = "Отправить"
+                        )
                     }
                 }
             )
         }
     }
+
+    if (settingsDialogOpen) {
+        val settingsScrollState = rememberScrollState()
+
+        AlertDialog(
+            onDismissRequest = { settingsDialogOpen = false },
+            title = { Text("Настройки чата") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(settingsScrollState),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Локальная LLM")
+                        Switch(
+                            checked = vm.useLocalLlm,
+                            onCheckedChange = { vm.updateUseLocalLlm(it) },
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Code QA")
+                        Switch(
+                            checked = vm.codeQaEnabled,
+                            onCheckedChange = { vm.updateCodeQaEnabled(it) },
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("RAG")
+                        Switch(
+                            checked = vm.ragEnabled,
+                            onCheckedChange = { vm.updateRagEnabled(it) },
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+                    }
+
+                    if (!vm.useLocalLlm) {
+                        Text(text = "Cloud модель: ${vm.model}", style = MaterialTheme.typography.bodySmall)
+                        TextButton(
+                            onClick = { cloudModelMenuExpanded = true },
+                            enabled = !vm.loading && !vm.historyLoading
+                        ) {
+                            Text("Сменить cloud-модель")
+                        }
+                        DropdownMenu(
+                            expanded = cloudModelMenuExpanded,
+                            onDismissRequest = { cloudModelMenuExpanded = false }
+                        ) {
+                            vm.cloudModels.forEach { candidate ->
+                                DropdownMenuItem(
+                                    text = { Text(candidate) },
+                                    onClick = {
+                                        vm.updateCloudModel(candidate)
+                                        cloudModelMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    } else {
+                        Text(text = "Локальная модель: ${vm.localModel}", style = MaterialTheme.typography.bodySmall)
+                        TextButton(
+                            onClick = { localModelMenuExpanded = true },
+                            enabled = !vm.loading && !vm.historyLoading
+                        ) {
+                            Text("Сменить локальную модель")
+                        }
+                        DropdownMenu(
+                            expanded = localModelMenuExpanded,
+                            onDismissRequest = { localModelMenuExpanded = false }
+                        ) {
+                            vm.localModels.forEach { candidate ->
+                                DropdownMenuItem(
+                                    text = { Text(candidate) },
+                                    onClick = {
+                                        vm.updateLocalModel(candidate)
+                                        localModelMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Профиль параметров: ${vm.localLlmPreset.label}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        TextButton(
+                            onClick = { localPresetMenuExpanded = true },
+                            enabled = !vm.loading && !vm.historyLoading
+                        ) {
+                            Text("Выбрать профиль")
+                        }
+                        DropdownMenu(
+                            expanded = localPresetMenuExpanded,
+                            onDismissRequest = { localPresetMenuExpanded = false }
+                        ) {
+                            LocalLlmPreset.values().forEach { preset ->
+                                DropdownMenuItem(
+                                    text = { Text(preset.label) },
+                                    onClick = {
+                                        vm.applyLocalLlmPreset(preset)
+                                        localPresetMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Temperature: ${String.format(Locale.US, "%.2f", vm.localTemperature)}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Slider(
+                            value = vm.localTemperature,
+                            onValueChange = { vm.updateLocalTemperature(it) },
+                            valueRange = 0f..2f,
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+
+                        OutlinedTextField(
+                            value = vm.localNumCtx?.toString() ?: "",
+                            onValueChange = { raw ->
+                                if (raw.all { it.isDigit() }) vm.updateLocalNumCtxFromInput(raw)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Context window (num_ctx)") },
+                            placeholder = { Text("например, 8192") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+
+                        OutlinedTextField(
+                            value = vm.localNumPredict?.toString() ?: "",
+                            onValueChange = { raw ->
+                                if (raw.all { it.isDigit() }) vm.updateLocalNumPredictFromInput(raw)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Max tokens (num_predict)") },
+                            placeholder = { Text("например, 1024") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            enabled = !vm.loading && !vm.historyLoading
+                        )
+                    }
+
+                    Text(
+                        text = "Профиль задачи: ${vm.taskProfileLabel ?: "не определён"}" +
+                                (vm.taskProfileCode?.let { " ($it)" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { settingsDialogOpen = false }) {
+                    Text("Закрыть")
+                }
+            }
+        )
+    }
+
+    memoryDialog?.let { type ->
+        val (title, text) = when (type) {
+            MemoryDialogType.ShortTerm -> "Краткосрочная память" to vm.shortTermMemoryDump()
+            MemoryDialogType.Working -> "Рабочая память" to vm.workingMemoryDump()
+            MemoryDialogType.LongTerm -> "Долговременная память" to vm.longTermMemoryDump()
+        }
+        val dialogScrollState = rememberScrollState()
+
+        AlertDialog(
+            onDismissRequest = { memoryDialog = null },
+            title = { Text(title) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(dialogScrollState)
+                ) {
+                    Text(text)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { memoryDialog = null }) {
+                    Text("Закрыть")
+                }
+            }
+        )
+    }
+}
+
+private enum class MemoryDialogType {
+    ShortTerm,
+    Working,
+    LongTerm
 }
 
 @Composable
@@ -198,13 +551,13 @@ private fun MessageBubble(msg: UiMessage) {
                                     if (msg.latencyMs != null) append(" | ")
                                     append(
                                         "Tokens: запрос=${usage.currentRequestTokens ?: "?"} " +
-                                            "ответ=${usage.modelResponseTokens ?: "?"}"
+                                                "ответ=${usage.modelResponseTokens ?: "?"}"
                                     )
 
                                     if (usage.cumulativeInputTokens != null || usage.cumulativeOutputTokens != null) {
                                         append(
                                             " | за сессию: in=${usage.cumulativeInputTokens ?: "?"} " +
-                                                "out=${usage.cumulativeOutputTokens ?: "?"}"
+                                                    "out=${usage.cumulativeOutputTokens ?: "?"}"
                                         )
                                     }
 

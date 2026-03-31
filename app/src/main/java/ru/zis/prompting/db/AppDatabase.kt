@@ -8,13 +8,23 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ChatSessionEntity::class],
-    version = 2,
+    entities = [
+        ChatSessionEntity::class,
+        LongTermMemoryEntity::class,
+        UserProfileEntity::class,
+        InvariantEntity::class,
+        WeatherRecordEntity::class
+    ],
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun chatSessionDao(): ChatSessionDao
+    abstract fun longTermMemoryDao(): LongTermMemoryDao
+    abstract fun userProfileDao(): UserProfileDao
+    abstract fun invariantDao(): InvariantDao
+    abstract fun weatherRecordDao(): WeatherRecordDao
 
     companion object {
         @Volatile
@@ -26,6 +36,73 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE chat_sessions ADD COLUMN workingMemoryJson TEXT NOT NULL DEFAULT '{}'")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `long_term_memory` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `user_profiles` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `style` TEXT NOT NULL,
+                        `constraints` TEXT NOT NULL,
+                        `context` TEXT NOT NULL,
+                        `isActive` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `invariants` (
+                        `id` TEXT NOT NULL,
+                        `rule` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `weather_records` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `location` TEXT NOT NULL,
+                        `timestampEpochMs` INTEGER NOT NULL,
+                        `temperatureC` REAL,
+                        `conditions` TEXT,
+                        `summary` TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -34,6 +111,10 @@ abstract class AppDatabase : RoomDatabase() {
                     "chat_db"
                 )
                     .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_5_6)
                     .build()
                     .also { INSTANCE = it }
             }

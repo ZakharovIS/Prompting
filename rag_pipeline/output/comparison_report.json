@@ -1,0 +1,402 @@
+{
+  "embedding_model": "openai/text-embedding-3-large",
+  "mock_embeddings": false,
+  "corpus": {
+    "documents_count": 73,
+    "total_chars": 262260,
+    "estimated_pages": 145.7,
+    "documents": [
+      {
+        "source": "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt",
+        "title": "ChatAgent",
+        "chars": 35280
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/agent/InvariantModels.kt",
+        "title": "InvariantModels",
+        "chars": 421
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/agent/MemoryModels.kt",
+        "title": "MemoryModels",
+        "chars": 474
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt",
+        "title": "RagRepository",
+        "chars": 6913
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/agent/TaskProfileModels.kt",
+        "title": "TaskProfileModels",
+        "chars": 5020
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/App.kt",
+        "title": "App",
+        "chars": 1505
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/ChatScreen.kt",
+        "title": "ChatScreen",
+        "chars": 16144
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/ChatViewModel.kt",
+        "title": "ChatViewModel",
+        "chars": 10193
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/EmbeddingsRequest.kt",
+        "title": "EmbeddingsRequest",
+        "chars": 284
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/EmbeddingsResponse.kt",
+        "title": "EmbeddingsResponse",
+        "chars": 422
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/InputMessage.kt",
+        "title": "InputMessage",
+        "chars": 160
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/Reasoning.kt",
+        "title": "Reasoning",
+        "chars": 199
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/ResponseContentPart.kt",
+        "title": "ResponseContentPart",
+        "chars": 199
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/ResponseOutputItem.kt",
+        "title": "ResponseOutputItem",
+        "chars": 329
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/ResponsesRequest.kt",
+        "title": "ResponsesRequest",
+        "chars": 443
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/ResponsesResponse.kt",
+        "title": "ResponsesResponse",
+        "chars": 619
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/RouterAiError.kt",
+        "title": "RouterAiError",
+        "chars": 177
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/data/Usage.kt",
+        "title": "Usage",
+        "chars": 960
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/AppDatabase.kt",
+        "title": "AppDatabase",
+        "chars": 4388
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/ChatRepository.kt",
+        "title": "ChatRepository",
+        "chars": 3117
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/ChatSessionDao.kt",
+        "title": "ChatSessionDao",
+        "chars": 597
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/ChatSessionEntity.kt",
+        "title": "ChatSessionEntity",
+        "chars": 772
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/InvariantDao.kt",
+        "title": "InvariantDao",
+        "chars": 485
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/InvariantEntity.kt",
+        "title": "InvariantEntity",
+        "chars": 261
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/InvariantRepository.kt",
+        "title": "InvariantRepository",
+        "chars": 613
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/LongTermMemoryDao.kt",
+        "title": "LongTermMemoryDao",
+        "chars": 495
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/LongTermMemoryEntity.kt",
+        "title": "LongTermMemoryEntity",
+        "chars": 324
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/UiMessageSerializable.kt",
+        "title": "UiMessageSerializable",
+        "chars": 701
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/UserProfileDao.kt",
+        "title": "UserProfileDao",
+        "chars": 870
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/UserProfileEntity.kt",
+        "title": "UserProfileEntity",
+        "chars": 378
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/UserProfileRepository.kt",
+        "title": "UserProfileRepository",
+        "chars": 1276
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/WeatherRecordDao.kt",
+        "title": "WeatherRecordDao",
+        "chars": 646
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/WeatherRecordEntity.kt",
+        "title": "WeatherRecordEntity",
+        "chars": 360
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/db/WeatherRepository.kt",
+        "title": "WeatherRepository",
+        "chars": 1270
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/MainActivity.kt",
+        "title": "MainActivity",
+        "chars": 2589
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/GeocodingMcpTool.kt",
+        "title": "GeocodingMcpTool",
+        "chars": 5928
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/McpRegistry.kt",
+        "title": "McpRegistry",
+        "chars": 2177
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/McpTool.kt",
+        "title": "McpTool",
+        "chars": 632
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/SunriseSunsetMcpTool.kt",
+        "title": "SunriseSunsetMcpTool",
+        "chars": 10919
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/WeatherMcpTool.kt",
+        "title": "WeatherMcpTool",
+        "chars": 3762
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/WeatherMultiFetchMcpTool.kt",
+        "title": "WeatherMultiFetchMcpTool",
+        "chars": 4172
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/WeatherPipelineMcpTool.kt",
+        "title": "WeatherPipelineMcpTool",
+        "chars": 12661
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/WeatherPipelineTracker.kt",
+        "title": "WeatherPipelineTracker",
+        "chars": 1505
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/WeatherSaveReportMcpTool.kt",
+        "title": "WeatherSaveReportMcpTool",
+        "chars": 2172
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/WeatherSchedulerMcpTool.kt",
+        "title": "WeatherSchedulerMcpTool",
+        "chars": 7304
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/mcp/WeatherSummarizeMcpTool.kt",
+        "title": "WeatherSummarizeMcpTool",
+        "chars": 4748
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/McpScreen.kt",
+        "title": "McpScreen",
+        "chars": 4306
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/McpViewModel.kt",
+        "title": "McpViewModel",
+        "chars": 3962
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/network/RouterAiApi.kt",
+        "title": "RouterAiApi",
+        "chars": 2328
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/profile/UserProfile.kt",
+        "title": "UserProfile",
+        "chars": 303
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/ProfileScreen.kt",
+        "title": "ProfileScreen",
+        "chars": 13573
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/ProfileViewModel.kt",
+        "title": "ProfileViewModel",
+        "chars": 5944
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/ui/theme/Color.kt",
+        "title": "Color",
+        "chars": 280
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/ui/theme/Theme.kt",
+        "title": "Theme",
+        "chars": 1693
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/ui/theme/Type.kt",
+        "title": "Type",
+        "chars": 985
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/weather/WeatherApi.kt",
+        "title": "WeatherApi",
+        "chars": 3254
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/weather/WeatherNotifications.kt",
+        "title": "WeatherNotifications",
+        "chars": 2119
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/weather/WeatherScheduler.kt",
+        "title": "WeatherScheduler",
+        "chars": 5840
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/weather/WeatherWorker.kt",
+        "title": "WeatherWorker",
+        "chars": 1757
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/WeatherHistoryScreen.kt",
+        "title": "WeatherHistoryScreen",
+        "chars": 4031
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/WeatherHistoryViewModel.kt",
+        "title": "WeatherHistoryViewModel",
+        "chars": 2331
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/WeatherPipelineScreen.kt",
+        "title": "WeatherPipelineScreen",
+        "chars": 6147
+      },
+      {
+        "source": "app/src/main/java/ru/zis/prompting/WeatherPipelineViewModel.kt",
+        "title": "WeatherPipelineViewModel",
+        "chars": 1869
+      },
+      {
+        "source": "rag_pipeline/chunkers.py",
+        "title": "chunkers",
+        "chars": 4808
+      },
+      {
+        "source": "rag_pipeline/compare.py",
+        "title": "compare",
+        "chars": 2432
+      },
+      {
+        "source": "rag_pipeline/embeddings.py",
+        "title": "embeddings",
+        "chars": 4696
+      },
+      {
+        "source": "rag_pipeline/eval.py",
+        "title": "eval",
+        "chars": 5850
+      },
+      {
+        "source": "rag_pipeline/index.py",
+        "title": "index",
+        "chars": 2013
+      },
+      {
+        "source": "rag_pipeline/pipeline.py",
+        "title": "pipeline",
+        "chars": 7302
+      },
+      {
+        "source": "rag_pipeline/rag_query.py",
+        "title": "rag_query",
+        "chars": 9660
+      },
+      {
+        "source": "rag_pipeline/README.md",
+        "title": "RAG Indexing Pipeline (для сдачи задания)",
+        "chars": 4624
+      },
+      {
+        "source": "rag_pipeline/requirements.txt",
+        "title": "requirements",
+        "chars": 21
+      },
+      {
+        "source": "README.md",
+        "title": "Prompting — агент с памятью, инвариантами и MCP-инструментами",
+        "chars": 5268
+      }
+    ]
+  },
+  "stats": {
+    "fixed_size": {
+      "strategy": "fixed_size",
+      "chunks_count": 259,
+      "avg_chars": 1007.94,
+      "min_chars": 6,
+      "max_chars": 1200,
+      "unique_sources": 73,
+      "unique_sections": 1
+    },
+    "structural": {
+      "strategy": "structural",
+      "chunks_count": 250,
+      "avg_chars": 984.87,
+      "min_chars": 18,
+      "max_chars": 2200,
+      "unique_sources": 73,
+      "unique_sections": 171
+    }
+  },
+  "output": {
+    "fixed_json": "rag_pipeline/output/fixed_size/index.json",
+    "fixed_sqlite": "rag_pipeline/output/fixed_size/index.sqlite",
+    "structural_json": "rag_pipeline/output/structural/index.json",
+    "structural_sqlite": "rag_pipeline/output/structural/index.sqlite"
+  }
+}

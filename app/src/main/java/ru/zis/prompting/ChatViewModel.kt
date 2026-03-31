@@ -2,10 +2,10 @@ package ru.zis.prompting
 
 import android.app.Application
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +14,10 @@ import kotlinx.coroutines.withContext
 import ru.zis.prompting.agent.ChatAgent
 import ru.zis.prompting.data.Usage
 import ru.zis.prompting.db.ChatRepository
+import ru.zis.prompting.db.InvariantRepository
+import ru.zis.prompting.db.UserProfileRepository
 import ru.zis.prompting.network.RouterAiApiFactory
+import ru.zis.prompting.profile.UserProfile
 
 data class UiMessage(
     val role: String,              // "user" | "assistant"
@@ -23,7 +26,15 @@ data class UiMessage(
     val usage: Usage? = null       // только для assistant
 )
 
+enum class LocalLlmPreset(val label: String) {
+    DEFAULT("Default"),
+    OPTIMAL("Оптимальные"),
+    CUSTOM("Кастом")
+}
+
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val app: App = application as App
 
     var inputText by mutableStateOf("")
     var temperature by mutableFloatStateOf(1.0f)
@@ -32,20 +43,84 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    var ragEnabled by mutableStateOf(false)
+        private set
+
+    var useLocalLlm by mutableStateOf(false)
+        private set
 
     /** true пока идёт начальная загрузка истории из БД */
     var historyLoading by mutableStateOf(true)
         private set
 
-    val model = "deepseek/deepseek-v3.2"
+    val cloudModels = listOf(
+        "openai/gpt-5.2",
+        "openai/gpt-4.1-mini"
+    )
+
+    val localModels = listOf(
+        "qwen2.5:14b",
+        "qwen2.5-coder:14b",
+        "llama3.1:8b"
+    )
+
+    var model by mutableStateOf(cloudModels.first())
+        private set
+
+    var localModel by mutableStateOf(localModels.first())
+        private set
+
+    var codeQaEnabled by mutableStateOf(false)
+        private set
+
+    var localLlmPreset by mutableStateOf(LocalLlmPreset.DEFAULT)
+        private set
+
+    var localTemperature by mutableFloatStateOf(1.0f)
+        private set
+
+    var localNumCtx by mutableStateOf<Int?>(null)
+        private set
+
+    var localNumPredict by mutableStateOf<Int?>(null)
+        private set
 
     private val api = RouterAiApiFactory.create()
-    private val agent = ChatAgent(api = api, model = model)
+    private val agent = ChatAgent(
+        api = api,
+        model = model,
+        ollamaApi = app.ollamaApi,
+        localModel = localModel,
+        mcpRegistry = app.mcpRegistry,
+        ragRepository = app.ragRepository
+    )
 
     private val repository: ChatRepository =
-        (application as App).chatRepository
+        app.chatRepository
+
+    private val profileRepository: UserProfileRepository =
+        app.userProfileRepository
+
+    private val invariantRepository: InvariantRepository =
+        app.invariantRepository
+
+    var activeProfileName by mutableStateOf<String?>(null)
+        private set
+
+    var taskProfileLabel by mutableStateOf<String?>(null)
+        private set
+
+    var taskStageLabel by mutableStateOf<String?>(null)
+        private set
+
+    var taskProfileCode by mutableStateOf<String?>(null)
+        private set
+
+    var taskStageCode by mutableStateOf<String?>(null)
+        private set
 
     init {
+        pushLocalGenerationConfigToAgent()
         loadHistory()
     }
 
@@ -54,16 +129,166 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun loadHistory() {
         viewModelScope.launch(Dispatchers.IO) {
             val state = repository.load()
+            val longTermMemory = repository.loadLongTermMemory()
+            val activeProfile = profileRepository.getActive()
+            val invariants = invariantRepository.getAll()
             withContext(Dispatchers.Main) {
                 if (state != null) {
                     messages.addAll(state.uiMessages)
                     agent.restoreHistory(state.agentHistory, state.summary)
+                    agent.restoreMemoryLayers(state.workingMemory, longTermMemory)
+                    refreshTaskLifecycleState()
                     val (savedInput, savedOutput) = extractSavedCumulativeTokens(state.uiMessages)
                     agent.restoreCumulativeTokens(savedInput, savedOutput)
+                } else {
+                    agent.restoreMemoryLayers(savedWorkingMemory = null, savedLongTermMemory = longTermMemory)
+                    refreshTaskLifecycleState()
                 }
+                applyActiveProfile(activeProfile)
+                agent.setInvariants(invariants)
+                agent.setRagEnabled(ragEnabled)
+                agent.setUseLocalLlm(useLocalLlm)
+                agent.setCodeQaEnabled(codeQaEnabled)
+                app.ragRepository.setUseLocalLlm(useLocalLlm)
                 historyLoading = false
             }
         }
+    }
+
+    fun updateRagEnabled(enabled: Boolean) {
+        ragEnabled = enabled
+        agent.setRagEnabled(enabled)
+    }
+
+    fun updateUseLocalLlm(enabled: Boolean) {
+        useLocalLlm = enabled
+        agent.setUseLocalLlm(enabled)
+        app.ragRepository.setUseLocalLlm(enabled)
+    }
+
+    fun updateCodeQaEnabled(enabled: Boolean) {
+        codeQaEnabled = enabled
+        agent.setCodeQaEnabled(enabled)
+    }
+
+    fun applyLocalLlmPreset(preset: LocalLlmPreset) {
+        localLlmPreset = preset
+        when (preset) {
+            LocalLlmPreset.DEFAULT -> {
+                localTemperature = 1.0f
+                localNumCtx = null
+                localNumPredict = null
+            }
+
+            LocalLlmPreset.OPTIMAL -> {
+                localTemperature = 0.1f
+                localNumCtx = 8192
+                localNumPredict = 1024
+            }
+
+            LocalLlmPreset.CUSTOM -> {
+                // Не изменяем значения — пользователь настраивает вручную.
+            }
+        }
+        pushLocalGenerationConfigToAgent()
+    }
+
+    fun updateLocalTemperature(value: Float) {
+        localTemperature = value.coerceIn(0f, 2f)
+        localLlmPreset = LocalLlmPreset.CUSTOM
+        pushLocalGenerationConfigToAgent()
+    }
+
+    fun updateLocalNumCtxFromInput(raw: String) {
+        val parsed = raw.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+        localNumCtx = parsed?.coerceAtLeast(256)
+        localLlmPreset = LocalLlmPreset.CUSTOM
+        pushLocalGenerationConfigToAgent()
+    }
+
+    fun updateLocalNumPredictFromInput(raw: String) {
+        val parsed = raw.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+        localNumPredict = parsed?.coerceAtLeast(32)
+        localLlmPreset = LocalLlmPreset.CUSTOM
+        pushLocalGenerationConfigToAgent()
+    }
+
+    fun updateCloudModel(newModel: String) {
+        if (!cloudModels.contains(newModel)) return
+        model = newModel
+        agent.setModel(newModel)
+    }
+
+    fun updateLocalModel(newModel: String) {
+        if (!localModels.contains(newModel)) return
+        localModel = newModel
+        agent.setLocalModel(newModel)
+    }
+
+    fun refreshActiveProfile() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val active = profileRepository.getActive()
+            withContext(Dispatchers.Main) {
+                applyActiveProfile(active)
+            }
+        }
+    }
+
+    private fun applyActiveProfile(profile: UserProfile?) {
+        agent.setProfile(profile)
+        activeProfileName = profile?.name
+    }
+
+    fun shortTermMemoryDump(): String {
+        val history = agent.snapshotHistory()
+        if (history.isEmpty()) return "Краткосрочная память пуста"
+
+        return buildString {
+            appendLine("Текущий диалог (${history.size} сообщений):")
+            history.forEachIndexed { index, m ->
+                appendLine("${index + 1}. ${m.role}: ${m.content}")
+            }
+        }.trim()
+    }
+
+    fun workingMemoryDump(): String {
+        val wm = agent.snapshotWorkingMemory()
+        if (wm.goal.isNullOrBlank() &&
+            wm.clarifications.isEmpty() &&
+            wm.constraints.isEmpty() &&
+            wm.keyFacts.isEmpty() &&
+            wm.openQuestions.isEmpty()
+        ) {
+            return "Рабочая память пуста"
+        }
+
+        return buildString {
+            appendLine("Цель: ${wm.goal ?: "—"}")
+            appendLine()
+            appendLine("Что пользователь уже уточнил:")
+            if (wm.clarifications.isEmpty()) appendLine("- —") else wm.clarifications.forEach { appendLine("- $it") }
+            appendLine()
+            appendLine("Ограничения и зафиксированные термины:")
+            if (wm.constraints.isEmpty()) appendLine("- —") else wm.constraints.forEach { appendLine("- $it") }
+            appendLine()
+            appendLine("Ключевые данные:")
+            if (wm.keyFacts.isEmpty()) appendLine("- —") else wm.keyFacts.forEach { appendLine("- $it") }
+            appendLine()
+            appendLine("Открытые вопросы:")
+            if (wm.openQuestions.isEmpty()) appendLine("- —") else wm.openQuestions.forEach { appendLine("- $it") }
+        }.trim()
+    }
+
+    fun longTermMemoryDump(): String {
+        val items = agent.snapshotLongTermMemory()
+        if (items.isEmpty()) return "Долговременная память пуста"
+
+        return buildString {
+            appendLine("Профиль/знания (${items.size}):")
+            items.forEachIndexed { index, item ->
+                appendLine("${index + 1}. [${item.category}] ${item.content}")
+            }
+        }.trim()
     }
 
     private fun extractSavedCumulativeTokens(uiMessages: List<UiMessage>): Pair<Int?, Int?> {
@@ -106,9 +331,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun clearChat() {
         agent.clear()
         messages.clear()
+        refreshTaskLifecycleState()
         error = null
         loading = false
         viewModelScope.launch(Dispatchers.IO) { repository.clear() }
+    }
+
+    fun resetTaskState() {
+        agent.resetTaskLifecycle()
+        refreshTaskLifecycleState()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.save(
+                uiMessages = messages.toList(),
+                agentHistory = agent.snapshotHistory(),
+                summary = agent.snapshotSummary(),
+                workingMemory = agent.snapshotWorkingMemory()
+            )
+        }
     }
 
     fun send() {
@@ -134,6 +373,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val activeProfile = profileRepository.getActive()
+                val invariants = invariantRepository.getAll()
+                withContext(Dispatchers.Main) {
+                    applyActiveProfile(activeProfile)
+                    agent.setInvariants(invariants)
+                }
+
                 val turn = agent.send(userText = text, temperature = temperature)
 
                 withContext(Dispatchers.Main) {
@@ -143,6 +389,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         latencyMs = turn.latencyMs,
                         usage = turn.usage
                     )
+                    refreshTaskLifecycleState()
                     loading = false
                 }
 
@@ -150,8 +397,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 repository.save(
                     uiMessages = messages.toList(),
                     agentHistory = agent.snapshotHistory(),
-                    summary = agent.snapshotSummary()
+                    summary = agent.snapshotSummary(),
+                    workingMemory = agent.snapshotWorkingMemory()
                 )
+                repository.saveLongTermMemory(agent.snapshotLongTermMemory())
             } catch (t: Throwable) {
                 withContext(Dispatchers.Main) {
                     error = t.message ?: t.toString()
@@ -159,5 +408,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    private fun refreshTaskLifecycleState() {
+        val snapshot = agent.snapshotTaskLifecycle()
+        taskProfileLabel = snapshot.profileLabel
+        taskStageLabel = snapshot.stageLabel
+        taskProfileCode = snapshot.profileType?.name
+        taskStageCode = snapshot.currentStage?.name
+    }
+
+    private fun pushLocalGenerationConfigToAgent() {
+        agent.setLocalGenerationConfig(
+            temperature = localTemperature,
+            numCtx = localNumCtx,
+            numPredict = localNumPredict
+        )
     }
 }

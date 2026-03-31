@@ -1,0 +1,102 @@
+[
+  {
+    "id": "Q1",
+    "question": "Как в чате включается и выключается RAG режим?",
+    "expectation": "Ответ должен упомянуть Switch в ChatScreen и вызов vm.updateRagEnabled(...), который меняет флаг в ChatViewModel и пробрасывает его в ChatAgent.",
+    "expected_keywords": ["Switch", "updateRagEnabled", "ChatViewModel", "setRagEnabled", "ChatAgent"],
+    "expected_sources": [
+      "app/src/main/java/ru/zis/prompting/ChatScreen.kt",
+      "app/src/main/java/ru/zis/prompting/ChatViewModel.kt",
+      "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt"
+    ]
+  },
+  {
+    "id": "Q2",
+    "question": "Опиши последовательность RAG в проекте: вопрос → поиск релевантных чанков → объединение с вопросом → запрос к LLM.",
+    "expectation": "Нужно описать, что RagRepository получает embedding вопроса, считает similarity с индексом, берёт top-k, формирует system контекст, а ChatAgent добавляет его в input перед user сообщением.",
+    "expected_keywords": ["buildRagSystemMessage", "retrieveRelevantChunks", "topK", "system", "InputMessage"],
+    "expected_sources": [
+      "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt",
+      "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt"
+    ]
+  },
+  {
+    "id": "Q3",
+    "question": "Откуда RagRepository берёт индекс чанков и какой путь используется по умолчанию?",
+    "expectation": "Ответ должен назвать приоритет: assets (rag/structural_index.json), затем filePath (rag_pipeline/output/structural/index.json).",
+    "expected_keywords": ["assets", "rag/structural_index.json", "filePath", "rag_pipeline/output/structural/index.json"],
+    "expected_sources": [
+      "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt"
+    ]
+  },
+  {
+    "id": "Q4",
+    "question": "Какая embedding модель используется по умолчанию в Android и в Python пайплайне?",
+    "expectation": "Должно быть указано openai/text-embedding-3-large и связь с запросом /embeddings.",
+    "expected_keywords": ["openai/text-embedding-3-large", "embeddings"],
+    "expected_sources": [
+      "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt",
+      "rag_pipeline/pipeline.py",
+      "rag_pipeline/embeddings.py"
+    ]
+  },
+  {
+    "id": "Q5",
+    "question": "Какая LLM модель используется для ответов в чате по умолчанию?",
+    "expectation": "Ответ должен содержать openai/gpt-5.2 и упоминание ChatViewModel/ChatAgent.",
+    "expected_keywords": ["openai/gpt-5.2", "ChatViewModel", "ChatAgent"],
+    "expected_sources": [
+      "app/src/main/java/ru/zis/prompting/ChatViewModel.kt",
+      "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt"
+    ]
+  },
+  {
+    "id": "Q6",
+    "question": "Как в проекте считается релевантность чанков при поиске по RAG?",
+    "expectation": "Нужно упомянуть нормализацию векторов и косинусную близость (dot после normalize).",
+    "expected_keywords": ["normalize", "dot", "score", "cosine"],
+    "expected_sources": [
+      "app/src/main/java/ru/zis/prompting/agent/RagRepository.kt",
+      "rag_pipeline/rag_query.py"
+    ]
+  },
+  {
+    "id": "Q7",
+    "question": "Какие стратегии chunking реализованы в пайплайне и где сравнивается их статистика?",
+    "expectation": "Ожидаются fixed_size и structural, а также упоминание compare.py и comparison_report.json.",
+    "expected_keywords": ["fixed_size", "structural", "compare.py", "comparison_report.json"],
+    "expected_sources": [
+      "rag_pipeline/pipeline.py",
+      "rag_pipeline/compare.py",
+      "rag_pipeline/README.md"
+    ]
+  },
+  {
+    "id": "Q8",
+    "question": "Какой формат метаданных хранится у чанков в index.json?",
+    "expectation": "Нужно перечислить chunk_id, source, title, section, strategy, char_start, char_end, text, embedding.",
+    "expected_keywords": ["chunk_id", "source", "title", "section", "strategy", "char_start", "char_end", "text", "embedding"],
+    "expected_sources": [
+      "rag_pipeline/output/structural/index.json",
+      "rag_pipeline/index.py"
+    ]
+  },
+  {
+    "id": "Q9",
+    "question": "Что делает метод buildContextMessages в ChatAgent и где в нём подключается RAG?",
+    "expectation": "Должно быть сказано, что метод собирает system сообщения (профиль, lifecycle, инварианты, MCP, summary и RAG), а RAG добавляется как system message при ragEnabled=true.",
+    "expected_keywords": ["buildContextMessages", "ragEnabled", "ragSystem", "system"],
+    "expected_sources": [
+      "app/src/main/java/ru/zis/prompting/agent/ChatAgent.kt"
+    ]
+  },
+  {
+    "id": "Q10",
+    "question": "Где и как создаётся RagRepository в Android приложении?",
+    "expectation": "Ожидается описание lazy-поля в App.kt, куда передаётся context и RouterAiApiFactory.create().",
+    "expected_keywords": ["App.kt", "val ragRepository by lazy", "context", "RouterAiApiFactory.create"],
+    "expected_sources": [
+      "app/src/main/java/ru/zis/prompting/App.kt"
+    ]
+  }
+]

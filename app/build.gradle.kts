@@ -32,7 +32,15 @@ android {
         val apiKey = gradleLocalProperties(rootDir, providers)
             .getProperty("ROUTERAI_API_KEY") ?: ""
 
+        val geoapifyApiKey = gradleLocalProperties(rootDir, providers)
+            .getProperty("GEOAPIFY_API_KEY") ?: ""
+
+        val visualCrossingApiKey = gradleLocalProperties(rootDir, providers)
+            .getProperty("VISUAL_CROSSING_API_KEY") ?: ""
+
         buildConfigField("String", "ROUTERAI_API_KEY", "\"$apiKey\"")
+        buildConfigField("String", "GEOAPIFY_API_KEY", "\"$geoapifyApiKey\"")
+        buildConfigField("String", "VISUAL_CROSSING_API_KEY", "\"$visualCrossingApiKey\"")
     }
 
     buildTypes {
@@ -82,8 +90,15 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.logging.interceptor)
 
+    // MCP client
+    implementation(libs.mcp.kotlin.sdk.client)
+    implementation(libs.ktor.client.okhttp)
+
     // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+
+    // WorkManager
+    implementation(libs.androidx.work.runtime.ktx)
 }

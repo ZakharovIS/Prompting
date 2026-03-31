@@ -11,6 +11,8 @@ import retrofit2.Retrofit
 import retrofit2.http.Body
 import retrofit2.http.POST
 import ru.zis.prompting.BuildConfig
+import ru.zis.prompting.data.EmbeddingsRequest
+import ru.zis.prompting.data.EmbeddingsResponse
 import ru.zis.prompting.data.ResponsesRequest
 import ru.zis.prompting.data.ResponsesResponse
 import java.util.concurrent.TimeUnit
@@ -18,6 +20,9 @@ import java.util.concurrent.TimeUnit
 interface RouterAiApi {
     @POST("responses")
     suspend fun createResponse(@Body body: ResponsesRequest): ResponsesResponse
+
+    @POST("embeddings")
+    suspend fun createEmbeddings(@Body body: EmbeddingsRequest): EmbeddingsResponse
 }
 
 object RouterAiApiFactory {
@@ -32,10 +37,10 @@ object RouterAiApiFactory {
         }
 
         val client = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS) // установка соединения
-            .writeTimeout(30, TimeUnit.SECONDS)   // отправка тела запроса
+            .connectTimeout(60, TimeUnit.SECONDS) // установка соединения
+            .writeTimeout(60, TimeUnit.SECONDS)   // отправка тела запроса
             .readTimeout(60, TimeUnit.SECONDS)    // ожидание ответа/чтение
-            .callTimeout(90, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val key = BuildConfig.ROUTERAI_API_KEY
                 val req: Request = chain.request().newBuilder()

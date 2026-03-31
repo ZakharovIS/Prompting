@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local LLM Chat</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 12px; }
+    h1 { margin-bottom: 8px; }
+    .row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+    input, select, button, textarea { font-size: 14px; }
+    textarea { width: 100%; height: 90px; }
+    #output {
+      border: 1px solid #ddd;
+      padding: 12px;
+      min-height: 220px;
+      border-radius: 8px;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      max-height: 420px;
+    }
+    .msg { white-space: pre-wrap; padding: 10px 12px; border-radius: 10px; max-width: 88%; }
+    .msg.user { align-self: flex-end; background: #dff1ff; }
+    .msg.assistant { align-self: flex-start; background: #eeeeee; }
+    .msg.system { align-self: center; background: #fff3cd; font-size: 12px; color: #7a5d00; }
+    .muted { color: #666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Локальный AI-чат (Ollama Proxy)</h1>
+  <p class="muted">Теперь это диалоговый чат с историей в рамках текущей сессии браузера.</p>
+
+  <div class="row">
+    <label for="model">Модель:</label>
+    <select id="model"></select>
+    <label for="ctx">max_context:</label>
+    <input id="ctx" type="number" value="2048" min="256" max="4096" step="256" />
+  </div>
+
+  <textarea id="prompt" placeholder="Например: Объясни разницу между RAG и fine-tuning"></textarea>
+  <div class="row">
+    <button id="send">Отправить</button>
+    <button id="clear">Очистить диалог</button>
+    <button id="health">Проверить health</button>
+  </div>
+
+  <h3>Диалог</h3>
+  <div id="output"></div>
+
+  <script>
+    const modelSelect = document.getElementById('model');
+    const output = document.getElementById('output');
+    const history = [];
+
+    function addMessage(role, content) {
+      const el = document.createElement('div');
+      el.className = `msg ${role}`;
+      el.textContent = content;
+      output.appendChild(el);
+      output.scrollTop = output.scrollHeight;
+    }
+
+    function addSystem(text) {
+      addMessage('system', text);
+    }
+
+    async function loadModels() {
+      const res = await fetch('/models');
+      const data = await res.json();
+      const models = data.models || [];
+      modelSelect.innerHTML = '';
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = m.name;
+        modelSelect.appendChild(opt);
+      });
+      addSystem(`Загружено моделей: ${models.length}`);
+    }
+
+    document.getElementById('send').addEventListener('click', async () => {
+      const prompt = document.getElementById('prompt').value.trim();
+      const model = modelSelect.value;
+      const max_context = parseInt(document.getElementById('ctx').value, 10);
+      if (!prompt) return;
+
+      history.push({ role: 'user', content: prompt });
+      addMessage('user', prompt);
+      document.getElementById('prompt').value = '';
+
+      addSystem('Генерация...');
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history, model, max_context })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        addSystem('Ошибка: ' + JSON.stringify(data, null, 2));
+        history.pop();
+        return;
+      }
+
+      const answer = data.response || '(пустой ответ)';
+      history.push({ role: 'assistant', content: answer });
+      addMessage('assistant', answer);
+    });
+
+    document.getElementById('clear').addEventListener('click', () => {
+      history.length = 0;
+      output.innerHTML = '';
+      addSystem('Диалог очищен');
+    });
+
+    document.getElementById('health').addEventListener('click', async () => {
+      const res = await fetch('/health');
+      const data = await res.json();
+      addSystem('health: ' + JSON.stringify(data));
+    });
+
+    loadModels().catch(err => {
+      addSystem('Не удалось загрузить модели: ' + err);
+    });
+  </script>
+</body>
+</html>
