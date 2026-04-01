@@ -1,0 +1,113 @@
+{
+  "users": [
+    {
+      "id": "u001",
+      "name": "Иван Петров",
+      "email": "ivan@example.com",
+      "plan": "Pro",
+      "registered_at": "2024-01-15"
+    },
+    {
+      "id": "u002",
+      "name": "Мария Сидорова",
+      "email": "maria@example.com",
+      "plan": "Free",
+      "registered_at": "2025-06-20"
+    },
+    {
+      "id": "u003",
+      "name": "Алексей Смирнов",
+      "email": "alex@example.com",
+      "plan": "Business",
+      "registered_at": "2023-11-04"
+    },
+    {
+      "id": "u004",
+      "name": "Екатерина Орлова",
+      "email": "ekaterina@example.com",
+      "plan": "Pro",
+      "registered_at": "2024-09-12"
+    },
+    {
+      "id": "u005",
+      "name": "Дмитрий Волков",
+      "email": "dmitry@example.com",
+      "plan": "Free",
+      "registered_at": "2025-01-30"
+    }
+  ],
+  "tickets": [
+    {
+      "id": "t001",
+      "user_id": "u001",
+      "status": "open",
+      "category": "auth",
+      "title": "Не работает авторизация",
+      "description": "Ввожу логин и пароль, получаю ошибку 401 Unauthorized.",
+      "created_at": "2025-03-28"
+    },
+    {
+      "id": "t002",
+      "user_id": "u002",
+      "status": "pending",
+      "category": "billing",
+      "title": "Не проходит оплата подписки",
+      "description": "При попытке оплатить Pro-тариф карта отклоняется без причины.",
+      "created_at": "2025-03-30"
+    },
+    {
+      "id": "t003",
+      "user_id": "u003",
+      "status": "open",
+      "category": "api",
+      "title": "Ошибка 429 при частых запросах",
+      "description": "API иногда отвечает Too Many Requests даже при умеренной нагрузке.",
+      "created_at": "2025-03-22"
+    },
+    {
+      "id": "t004",
+      "user_id": "u004",
+      "status": "resolved",
+      "category": "account",
+      "title": "Как поменять email в профиле",
+      "description": "Пользователь хочет сменить email аккаунта без потери данных.",
+      "created_at": "2025-02-14"
+    },
+    {
+      "id": "t005",
+      "user_id": "u005",
+      "status": "open",
+      "category": "auth",
+      "title": "Не приходит письмо для сброса пароля",
+      "description": "Форма сброса отправлена несколько раз, но письма нет во входящих.",
+      "created_at": "2025-03-31"
+    },
+    {
+      "id": "t006",
+      "user_id": "u001",
+      "status": "pending",
+      "category": "ui",
+      "title": "Кнопка Сохранить неактивна",
+      "description": "После редактирования профиля кнопка сохранения остаётся серой.",
+      "created_at": "2025-03-26"
+    },
+    {
+      "id": "t007",
+      "user_id": "u003",
+      "status": "open",
+      "category": "integration",
+      "title": "Webhook не доставляет события",
+      "description": "События успешно создаются, но не доходят до endpoint клиента.",
+      "created_at": "2025-03-27"
+    },
+    {
+      "id": "t008",
+      "user_id": "u004",
+      "status": "open",
+      "category": "billing",
+      "title": "Неверная сумма в счёте",
+      "description": "В счёте за март отображается двойное списание за один период.",
+      "created_at": "2025-03-29"
+    }
+  ]
+}

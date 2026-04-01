@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Support AI Assistant</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --border: #e1e5ee;
+      --text: #1b1f2a;
+      --muted: #697386;
+      --accent: #2f6fed;
+      --user: #dff1ff;
+      --assistant: #ececf3;
+      --system: #fff3cd;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      font-family: Arial, sans-serif;
+      color: var(--text);
+    }
+    .layout {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 16px;
+      min-height: 100vh;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+    .muted { color: var(--muted); font-size: 12px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    select, input, button, textarea {
+      font-size: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fff;
+    }
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      color: white;
+      border: none;
+    }
+    button.secondary {
+      background: #7a8699;
+    }
+    button.ghost {
+      background: #eef2ff;
+      color: #2948a3;
+      border: 1px solid #d8e0ff;
+    }
+    #ticketMeta {
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fbfcff;
+      min-height: 130px;
+      white-space: pre-wrap;
+      font-size: 13px;
+    }
+    #output {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fafbff;
+      min-height: 360px;
+      max-height: 520px;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .msg {
+      max-width: 88%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      white-space: pre-wrap;
+      line-height: 1.35;
+      font-size: 14px;
+    }
+    .msg.user { align-self: flex-end; background: var(--user); }
+    .msg.assistant { align-self: flex-start; background: var(--assistant); }
+    .msg.system { align-self: center; background: var(--system); font-size: 12px; }
+    textarea { width: 100%; min-height: 95px; resize: vertical; }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="panel">
+      <h1>Support AI</h1>
+      <p class="muted">Контекстный ассистент поддержки: FAQ + данные тикета (mock CRM).</p>
+
+      <h2>Тикет</h2>
+      <div class="row">
+        <select id="ticketSelect" style="width:100%"></select>
+      </div>
+
+      <div id="ticketMeta">Загрузка тикетов...</div>
+
+      <div class="row" style="margin-top:10px;">
+        <button id="refreshTickets" class="ghost">Обновить тикеты</button>
+      </div>
+    </aside>
+
+    <main class="panel">
+      <div class="row">
+        <label for="model">Модель:</label>
+        <select id="model"></select>
+        <label for="ctx">max_context:</label>
+        <input id="ctx" type="number" value="2048" min="256" max="4096" step="256" />
+      </div>
+
+      <h2>Диалог с поддержкой</h2>
+      <div id="output"></div>
+
+      <textarea id="prompt" placeholder="Например: Почему не работает авторизация? Что посоветуете по моему тикету?"></textarea>
+      <div class="row">
+        <button id="send">Отправить</button>
+        <button id="clear" class="secondary">Очистить диалог</button>
+        <button id="health" class="ghost">Проверить health</button>
+      </div>
+      <div class="muted">История диалога хранится в текущей вкладке браузера.</div>
+    </main>
+  </div>
+
+  <script>
+    const ticketSelect = document.getElementById('ticketSelect');
+    const ticketMeta = document.getElementById('ticketMeta');
+    const modelSelect = document.getElementById('model');
+    const output = document.getElementById('output');
+    const history = [];
+
+    let tickets = [];
+    let selectedTicketId = null;
+
+    function addMessage(role, content) {
+      const el = document.createElement('div');
+      el.className = `msg ${role}`;
+      el.textContent = content;
+      output.appendChild(el);
+      output.scrollTop = output.scrollHeight;
+    }
+
+    function addSystem(text) {
+      addMessage('system', text);
+    }
+
+    function clearChat() {
+      history.length = 0;
+      output.innerHTML = '';
+      addSystem('Диалог очищен');
+    }
+
+    async function loadModels() {
+      const res = await fetch('/models');
+      const data = await res.json();
+      const models = data.models || [];
+      modelSelect.innerHTML = '';
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = m.name;
+        modelSelect.appendChild(opt);
+      });
+      addSystem(`Загружено моделей: ${models.length}`);
+    }
+
+    async function loadTickets() {
+      const res = await fetch('/tickets');
+      const data = await res.json();
+      tickets = data.tickets || [];
+      ticketSelect.innerHTML = '';
+
+      const emptyOpt = document.createElement('option');
+      emptyOpt.value = '';
+      emptyOpt.textContent = 'Без тикета (только FAQ)';
+      ticketSelect.appendChild(emptyOpt);
+
+      tickets.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `#${t.id} [${t.status}] ${t.title}`;
+        ticketSelect.appendChild(opt);
+      });
+
+      selectedTicketId = '';
+      renderTicketMeta();
+      addSystem(`Загружено тикетов: ${tickets.length}`);
+    }
+
+    function renderTicketMeta() {
+      if (!selectedTicketId) {
+        ticketMeta.textContent = 'Тикет не выбран. Ассистент будет отвечать только по FAQ.';
+        return;
+      }
+      const t = tickets.find(x => x.id === selectedTicketId);
+      if (!t) {
+        ticketMeta.textContent = 'Тикет не найден.';
+        return;
+      }
+      ticketMeta.textContent =
+`Тикет: #${t.id}
+Статус: ${t.status}
+Категория: ${t.category}
+Заголовок: ${t.title}
+Пользователь: ${t.user_name || t.user_id}
+Создан: ${t.created_at}`;
+    }
+
+    ticketSelect.addEventListener('change', () => {
+      selectedTicketId = ticketSelect.value || null;
+      renderTicketMeta();
+      clearChat();
+      addSystem(selectedTicketId
+        ? `Выбран тикет #${selectedTicketId}. Ответы будут учитывать контекст тикета.`
+        : 'Режим без тикета: ассистент отвечает по базе знаний.');
+    });
+
+    document.getElementById('refreshTickets').addEventListener('click', async () => {
+      try {
+        await loadTickets();
+      } catch (e) {
+        addSystem('Ошибка загрузки тикетов: ' + e);
+      }
+    });
+
+    document.getElementById('send').addEventListener('click', async () => {
+      const promptEl = document.getElementById('prompt');
+      const prompt = promptEl.value.trim();
+      const model = modelSelect.value;
+      const max_context = parseInt(document.getElementById('ctx').value, 10);
+      if (!prompt) return;
+
+      history.push({ role: 'user', content: prompt });
+      addMessage('user', prompt);
+      promptEl.value = '';
+
+      addSystem('Генерация...');
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: history,
+          ticket_id: selectedTicketId,
+          model,
+          max_context,
+          temperature: 0.2
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        addSystem('Ошибка: ' + JSON.stringify(data, null, 2));
+        history.pop();
+        return;
+      }
+
+      const answer = data.response || '(пустой ответ)';
+      history.push({ role: 'assistant', content: answer });
+      addMessage('assistant', answer);
+
+      const faqCount = Array.isArray(data.faq_used) ? data.faq_used.length : 0;
+      addSystem(`Контекст: ticket=${selectedTicketId || 'none'}, faq_used=${faqCount}`);
+    });
+
+    document.getElementById('clear').addEventListener('click', clearChat);
+
+    document.getElementById('health').addEventListener('click', async () => {
+      const res = await fetch('/health');
+      const data = await res.json();
+      addSystem('health: ' + JSON.stringify(data));
+    });
+
+    Promise.all([loadModels(), loadTickets()]).catch(err => {
+      addSystem('Ошибка инициализации: ' + err);
+    });
+  </script>
+</body>
+</html>
