@@ -1,0 +1,7 @@
+{
+  "operation": "goal",
+  "output": "file_agent_output/goal_report.md",
+  "meta": {
+    "goal": "Найди где используется `weather_pipeline`, проверь README и сгенерируй changelog по 20 коммитам"
+  }
+}
